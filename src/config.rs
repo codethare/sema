@@ -29,6 +29,9 @@ pub struct Config {
 
     #[serde(default)]
     pub network: MetricConfig,
+
+    #[serde(default)]
+    pub log: LogConfig,
 }
 
 /// 通用指标配置（CPU / 内存 / Swap / 电池 / 温度 / 网络）
@@ -57,6 +60,19 @@ pub struct TimeConfig {
 impl Default for TimeConfig {
     fn default() -> Self {
         Self { enabled: true, cooldown_secs: 60 }
+    }
+}
+
+/// 日志配置
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct LogConfig {
+    pub enabled: bool,
+}
+
+impl Default for LogConfig {
+    fn default() -> Self {
+        Self { enabled: true }
     }
 }
 
@@ -98,6 +114,10 @@ pub fn default_time() -> TimeConfig {
     TimeConfig::default()
 }
 
+pub fn default_log() -> LogConfig {
+    LogConfig::default()
+}
+
 impl Config {
     pub fn into_checkers(self) -> Vec<Box<dyn crate::checkers::Checker>> {
         crate::checkers::all_checkers(self)
@@ -134,6 +154,7 @@ impl Config {
             time: raw.time.unwrap_or_else(default_time),
             temperature: raw.temperature.unwrap_or_else(default_temperature),
             network: raw.network.unwrap_or_else(default_network),
+            log: raw.log.unwrap_or_else(default_log),
         }
     }
 }
@@ -149,6 +170,7 @@ impl Default for Config {
             time: TimeConfig::default(),
             temperature: default_temperature(),
             network: default_network(),
+            log: LogConfig::default(),
         }
     }
 }
@@ -164,6 +186,7 @@ struct ConfigRaw {
     time: Option<TimeConfig>,
     temperature: Option<MetricConfig>,
     network: Option<MetricConfig>,
+    log: Option<LogConfig>,
 }
 
 pub fn config_path() -> PathBuf {

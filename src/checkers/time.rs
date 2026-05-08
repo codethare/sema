@@ -39,7 +39,7 @@ impl Checker for TimeChecker {
         let now = Local::now();
         let minute = now.minute();
         let is_time = minute == 0 || minute == 30;
-        let status = if is_time { "当前时间，将触发提醒" } else { "—" };
-        format!("  时间   {:>2}:{:02}       {:>8}    {status}", now.hour(), minute, "整点/半点")
+        let status = if is_time { "will trigger" } else { "—" };
+        format!("  Time    {:>2}:{:02}       :00/:30  {status}", now.hour(), minute)
     }
 }

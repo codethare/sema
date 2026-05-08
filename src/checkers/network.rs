@@ -63,9 +63,9 @@ impl Checker for Network {
         let networks = Networks::new_with_refreshed_list();
         let count = networks.iter().count();
         if count == 0 {
-            return "  网络   N/A".into();
+            return "  Network N/A".into();
         }
         let names: Vec<&str> = networks.keys().map(|n| n.as_str()).collect();
-        format!("  网络   {}个接口: {}", count, names.join(", "))
+        format!("  Network {} interfaces: {}", count, names.join(", "))
     }
 }

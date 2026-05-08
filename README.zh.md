@@ -158,6 +158,9 @@ cooldown_secs = 60
 enabled = true
 threshold = 100.0
 cooldown_secs = 60
+
+[log]
+enabled = true
 ```
 
 ### 参数说明

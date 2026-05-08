@@ -162,6 +162,9 @@ cooldown_secs = 60
 enabled = true
 threshold = 100.0
 cooldown_secs = 60
+
+[log]
+enabled = true
 ```
 
 ### Parameters
@@ -172,6 +175,7 @@ cooldown_secs = 60
 | `[metric].enabled` | boolean | true | Enable/disable the metric |
 | `[metric].threshold` | float | see table | Alert threshold (%) |
 | `[metric].cooldown_secs` | integer | 60 | Per-metric notification cooldown (seconds) |
+| `[log].enabled` | boolean | true | Enable/disable log file |
 
 > `[metric]` can be `cpu`, `memory`, `swap`, `battery`, or `temperature`.
 > `[time]` has no `threshold` field.
@@ -186,7 +190,7 @@ enabled = false
 
 ## Logging
 
-All triggered alerts are recorded to:
+All triggered alerts are recorded to the log file (can be disabled via `[log].enabled = false` in config):
 
 ```
 ~/.local/share/sema/sema.log

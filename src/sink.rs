@@ -49,14 +49,16 @@ fn write_log(summary: &str, body: &str) {
 pub struct Sink {
     last_notified: HashMap<String, Instant>,
     condition_started: HashMap<String, Instant>,
+    log_enabled: bool,
     pub dry_run: bool,
 }
 
 impl Sink {
-    pub fn new(dry_run: bool) -> Self {
+    pub fn new(dry_run: bool, log_enabled: bool) -> Self {
         Self {
             last_notified: HashMap::new(),
             condition_started: HashMap::new(),
+            log_enabled,
             dry_run,
         }
     }
@@ -114,7 +116,9 @@ impl Sink {
             .show()
             .is_ok();
         if ok {
-            write_log(&alert.summary, &body);
+            if self.log_enabled {
+                write_log(&alert.summary, &body);
+            }
             self.last_notified.insert(key.to_string(), Instant::now());
         }
     }

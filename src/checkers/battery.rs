@@ -47,9 +47,9 @@ impl Checker for Battery {
         match Self::read_capacity() {
             Some(cap) => {
                 let flag = if (cap as f64) < self.cfg.threshold { "⚠️" } else { "✓" };
-                format!("  电池   {:>6}%  阈值: {:>5.1}%  {flag}", cap, self.cfg.threshold)
+                format!("  Battery {:>6}%  threshold: {:>5.1}%  {flag}", cap, self.cfg.threshold)
             }
-            None => format!("  电池   {:>6}   阈值: {:>5.1}%  -  (未检测到)", "N/A", self.cfg.threshold),
+            None => format!("  Battery {:>6}    threshold: {:>5.1}%  -  (not detected)", "N/A", self.cfg.threshold),
         }
     }
 }

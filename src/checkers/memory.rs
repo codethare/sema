@@ -50,7 +50,7 @@ impl Checker for Memory {
         let used_mb = used / (1024 * 1024);
         let total_mb = total / (1024 * 1024);
         let flag = if usage > self.cfg.threshold { "⚠️" } else { "✓" };
-        format!("  内存   {:>6.1}%  阈值: {:>5.1}%  {flag}  ({used_mb}MB / {total_mb}MB)",
+        format!("  Memory  {:>6.1}%  threshold: {:>5.1}%  {flag}  ({used_mb}MB / {total_mb}MB)",
             usage, self.cfg.threshold)
     }
 }

@@ -42,6 +42,6 @@ impl Checker for Cpu {
     fn report(&self, sys: &System) -> String {
         let usage = sys.global_cpu_usage() as f64;
         let flag = if usage > self.cfg.threshold { "⚠️" } else { "✓" };
-        format!("  CPU     {:>6.1}%  阈值: {:>5.1}%  {flag}", usage, self.cfg.threshold)
+        format!("  CPU     {:>6.1}%  threshold: {:>5.1}%  {flag}", usage, self.cfg.threshold)
     }
 }

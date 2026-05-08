@@ -44,14 +44,14 @@ impl Checker for Swap {
     fn report(&self, sys: &System) -> String {
         let total = sys.total_swap();
         if total == 0 {
-            return format!("  Swap    {:>6}   阈值: {:>5.1}%  -  (未启用)", "N/A", self.cfg.threshold);
+            return format!("  Swap    {:>6}    threshold: {:>5.1}%  -  (disabled)", "N/A", self.cfg.threshold);
         }
         let used = sys.used_swap();
         let usage = used as f64 / total as f64 * 100.0;
         let used_mb = used / (1024 * 1024);
         let total_mb = total / (1024 * 1024);
         let flag = if usage > self.cfg.threshold { "⚠️" } else { "✓" };
-        format!("  Swap    {:>6.1}%  阈值: {:>5.1}%  {flag}  ({used_mb}MB / {total_mb}MB)",
+        format!("  Swap    {:>6.1}%  threshold: {:>5.1}%  {flag}  ({used_mb}MB / {total_mb}MB)",
             usage, self.cfg.threshold)
     }
 }

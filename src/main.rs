@@ -2,10 +2,12 @@ mod checkers;
 mod config;
 mod sink;
 
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
 use std::time::Duration;
 
+use notify_rust::Notification;
 use sysinfo::{
     CpuRefreshKind, MemoryRefreshKind, ProcessRefreshKind, RefreshKind, System,
 };
@@ -48,8 +50,9 @@ impl Monitor {
                 .with_processes(ProcessRefreshKind::everything()),
         );
         let check_interval = Duration::from_secs(cfg.check_interval_secs);
+        let log_enabled = cfg.log.enabled;
         let checkers = cfg.into_checkers();
-        let sink = Sink::new(dry_run);
+        let sink = Sink::new(dry_run, log_enabled);
         Self { sys, sink, checkers, check_interval }
     }
 
@@ -57,7 +60,7 @@ impl Monitor {
         let cfg = Config::load();
         self.check_interval = Duration::from_secs(cfg.check_interval_secs);
         self.checkers = cfg.into_checkers();
-        eprintln!("[sema] 配置已重新加载 ({} checkers)", self.checkers.len());
+        eprintln!("[sema] config reloaded ({} checkers)", self.checkers.len());
     }
 
     fn print_banner(&self) {
@@ -65,9 +68,9 @@ impl Monitor {
         println!(
             "🔍 sema {}{}\n\
              ──────────────────────────────────\n\
-             配置文件: {}\n\
-             日志路径: {}\n\
-             检测间隔: {}s\n",
+             config:  {}\n\
+             log:     {}\n\
+             interval: {}s\n",
             env!("CARGO_PKG_VERSION"),
             mode,
             config::config_path().display(),
@@ -92,12 +95,26 @@ impl Monitor {
             let sys = &self.sys;
             let sink = &mut self.sink;
             for c in &mut self.checkers {
-                if let Some(alert) = c.check(sys) {
-                    let key = c.key();
-                    sink.note_active(key, true);
-                    sink.notify(key, c.cooldown_secs(), &alert);
-                } else {
-                    sink.note_active(c.key(), false);
+                let key = c.key();
+                let cooldown = c.cooldown_secs();
+
+                let result = catch_unwind(AssertUnwindSafe(|| c.check(sys)));
+                match result {
+                    Ok(Some(alert)) => {
+                        sink.note_active(key, true);
+                        sink.notify(key, cooldown, &alert);
+                    }
+                    Ok(None) => {
+                        sink.note_active(key, false);
+                    }
+                    Err(_) => {
+                        eprintln!("[sema] checker '{key}' panicked, continuing");
+                        let _ = Notification::new()
+                            .summary("⚠️ sema: checker crashed")
+                            .body(&format!("'{key}' panicked, sema is still running"))
+                            .appname("sema")
+                            .show();
+                    }
                 }
             }
             sleep(self.check_interval);
@@ -106,7 +123,7 @@ impl Monitor {
 
     fn dry_run(&mut self) {
         self.print_banner();
-        println!("系统状态:\n");
+        println!("System state:\n");
         for c in &self.checkers {
             println!("{}", c.report(&self.sys));
         }
@@ -118,21 +135,21 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        println!("sema {} — 系统资源监控守护工具", env!("CARGO_PKG_VERSION"));
+        println!("sema {} — Linux system resource monitor", env!("CARGO_PKG_VERSION"));
         println!();
-        println!("用法: sema [选项]");
+        println!("Usage: sema [OPTIONS]");
         println!();
-        println!("选项:");
-        println!("  -n, --dry-run    打印系统状态概览并退出（不发送通知）");
-        println!("  -h, --help       显示此帮助信息");
+        println!("Options:");
+        println!("  -n, --dry-run    Print system status and exit (no notifications)");
+        println!("  -h, --help       Show this help message");
         println!();
-        println!("配置文件: ~/.config/sema/config.toml");
-        println!("日志文件: ~/.local/share/sema/sema.log");
+        println!("Config: ~/.config/sema/config.toml");
+        println!("Log:    ~/.local/share/sema/sema.log");
         return;
     }
 
     if let Err(e) = unsafe { signal_hook::low_level::register(signal_hook::consts::SIGHUP, handle_sighup) } {
-        eprintln!("[sema] 警告: 无法注册 SIGHUP 处理器: {e}");
+        eprintln!("[sema] warning: cannot register SIGHUP handler: {e}");
     }
 
     let dry_run = args.iter().any(|a| a == "--dry-run" || a == "-n");
