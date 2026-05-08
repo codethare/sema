@@ -2,6 +2,10 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 
+const MIN_INTERVAL: u64 = 1;
+const MAX_INTERVAL: u64 = 3600;
+const MIN_COOLDOWN: u64 = 1;
+
 /// sema 顶层配置
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -131,14 +135,18 @@ impl Config {
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("[sema] 警告: 读取配置文件失败 {path:?}: {e}");
+                eprintln!("[sema] warning: cannot read config {path:?}: {e}, using defaults");
                 return Config::default();
             }
         };
         match toml::from_str::<ConfigRaw>(&content) {
-            Ok(raw) => Config::from_raw(raw),
+            Ok(raw) => {
+                let mut cfg = Config::from_raw(raw);
+                cfg.validate();
+                cfg
+            }
             Err(e) => {
-                eprintln!("[sema] 警告: 配置文件解析失败: {e}\n      使用默认配置运行");
+                eprintln!("[sema] warning: config parse failed: {e}\n       using defaults");
                 Config::default()
             }
         }
@@ -157,11 +165,42 @@ impl Config {
             log: raw.log.unwrap_or_else(default_log),
         }
     }
+
+    fn validate(&mut self) {
+        if self.check_interval_secs < MIN_INTERVAL || self.check_interval_secs > MAX_INTERVAL {
+            eprintln!("[sema] warning: check_interval_secs {} out of range [{MIN_INTERVAL},{MAX_INTERVAL}], clamped",
+                self.check_interval_secs);
+            self.check_interval_secs = self.check_interval_secs.clamp(MIN_INTERVAL, MAX_INTERVAL);
+        }
+        Self::validate_metric("cpu", &mut self.cpu, 0.0, 100.0);
+        Self::validate_metric("memory", &mut self.memory, 0.0, 100.0);
+        Self::validate_metric("swap", &mut self.swap, 0.0, 100.0);
+        Self::validate_metric("battery", &mut self.battery, 0.0, 100.0);
+        Self::validate_metric("temperature", &mut self.temperature, 0.0, 150.0);
+        Self::validate_metric("network", &mut self.network, 0.0, 1_000_000.0);
+        if self.time.cooldown_secs < MIN_COOLDOWN {
+            eprintln!("[sema] warning: time.cooldown_secs {} < {MIN_COOLDOWN}, set to {MIN_COOLDOWN}",
+                self.time.cooldown_secs);
+            self.time.cooldown_secs = MIN_COOLDOWN;
+        }
+    }
+
+    fn validate_metric(name: &str, m: &mut MetricConfig, lo: f64, hi: f64) {
+        if m.threshold < lo || m.threshold > hi {
+            eprintln!("[sema] warning: {name}.threshold {} out of range [{lo},{hi}], clamped", m.threshold);
+            m.threshold = m.threshold.clamp(lo, hi);
+        }
+        if m.cooldown_secs < MIN_COOLDOWN {
+            eprintln!("[sema] warning: {name}.cooldown_secs {} < {MIN_COOLDOWN}, set to {MIN_COOLDOWN}",
+                m.cooldown_secs);
+            m.cooldown_secs = MIN_COOLDOWN;
+        }
+    }
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self {
+        let mut cfg = Self {
             check_interval_secs: default_check_interval(),
             cpu: default_cpu(),
             memory: default_memory(),
@@ -171,7 +210,9 @@ impl Default for Config {
             temperature: default_temperature(),
             network: default_network(),
             log: LogConfig::default(),
-        }
+        };
+        cfg.validate();
+        cfg
     }
 }
 
