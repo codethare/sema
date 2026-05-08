@@ -1,6 +1,6 @@
 [package]
 name = "sema"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 description = "Arch Linux 系统资源监控守护工具 - 监控 CPU、内存、Swap、电池和时间，通过桌面通知提示"
 authors = ["codethare"]
@@ -13,3 +13,4 @@ notify-rust = "4.11"
 chrono = "0.4"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
+signal-hook = "0.3"

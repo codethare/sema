@@ -3,13 +3,9 @@ use std::path::PathBuf;
 use serde::Deserialize;
 
 /// sema 顶层配置
-///
-/// 从 `~/.config/sema/config.toml` (或 `$XDG_CONFIG_HOME/sema/config.toml`) 读取。
-/// 所有字段都有默认值，缺失字段自动使用内置默认值。
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    /// 全局检测间隔（秒）。默认 10。
     #[serde(default = "default_check_interval")]
     pub check_interval_secs: u64,
 
@@ -27,44 +23,40 @@ pub struct Config {
 
     #[serde(default)]
     pub time: TimeConfig,
+
+    #[serde(default)]
+    pub temperature: MetricConfig,
+
+    #[serde(default)]
+    pub network: MetricConfig,
 }
 
-/// 通用指标配置（CPU / 内存 / Swap / 电池）
-#[derive(Debug, Clone, Deserialize)]
+/// 通用指标配置（CPU / 内存 / Swap / 电池 / 温度 / 网络）
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct MetricConfig {
     pub enabled: bool,
-    /// 告警阈值（%）
     pub threshold: f64,
-    /// 单指标通知冷却时间（秒）
     pub cooldown_secs: u64,
 }
 
 impl Default for MetricConfig {
     fn default() -> Self {
-        Self {
-            enabled: true,
-            threshold: 0.0,
-            cooldown_secs: 60,
-        }
+        Self { enabled: true, threshold: 0.0, cooldown_secs: 60 }
     }
 }
 
 /// 时间提醒配置
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct TimeConfig {
     pub enabled: bool,
-    /// 通知冷却时间（秒）
     pub cooldown_secs: u64,
 }
 
 impl Default for TimeConfig {
     fn default() -> Self {
-        Self {
-            enabled: true,
-            cooldown_secs: 60,
-        }
+        Self { enabled: true, cooldown_secs: 60 }
     }
 }
 
@@ -75,6 +67,7 @@ const fn default_check_interval() -> u64 {
 macro_rules! metric_defaults {
     ($($name:ident: $threshold:expr),* $(,)?) => {
         $(
+            #[allow(dead_code)]
             pub fn $name() -> MetricConfig {
                 MetricConfig {
                     enabled: true,
@@ -93,18 +86,28 @@ metric_defaults! {
     default_battery: 84.0,
 }
 
+pub fn default_temperature() -> MetricConfig {
+    MetricConfig { enabled: true, threshold: 80.0, cooldown_secs: 60 }
+}
+
+pub fn default_network() -> MetricConfig {
+    MetricConfig { enabled: true, threshold: 100.0, cooldown_secs: 60 }
+}
+
 pub fn default_time() -> TimeConfig {
     TimeConfig::default()
 }
 
 impl Config {
-    /// 加载配置。优先读取 XDG 配置路径，文件不存在时返回全默认值。
+    pub fn into_checkers(self) -> Vec<Box<dyn crate::checkers::Checker>> {
+        crate::checkers::all_checkers(self)
+    }
+
     pub fn load() -> Self {
         let path = config_path();
         if !path.exists() {
             return Config::default();
         }
-
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
             Err(e) => {
@@ -112,7 +115,6 @@ impl Config {
                 return Config::default();
             }
         };
-
         match toml::from_str::<ConfigRaw>(&content) {
             Ok(raw) => Config::from_raw(raw),
             Err(e) => {
@@ -130,6 +132,8 @@ impl Config {
             swap: raw.swap.unwrap_or_else(default_swap),
             battery: raw.battery.unwrap_or_else(default_battery),
             time: raw.time.unwrap_or_else(default_time),
+            temperature: raw.temperature.unwrap_or_else(default_temperature),
+            network: raw.network.unwrap_or_else(default_network),
         }
     }
 }
@@ -143,12 +147,13 @@ impl Default for Config {
             swap: default_swap(),
             battery: default_battery(),
             time: TimeConfig::default(),
+            temperature: default_temperature(),
+            network: default_network(),
         }
     }
 }
 
-/// 中间层配置（全部 Option），用于区分"未设置"和"设置但为默认值"。
-#[derive(Clone, Deserialize)]
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ConfigRaw {
     check_interval_secs: Option<u64>,
@@ -157,9 +162,10 @@ struct ConfigRaw {
     swap: Option<MetricConfig>,
     battery: Option<MetricConfig>,
     time: Option<TimeConfig>,
+    temperature: Option<MetricConfig>,
+    network: Option<MetricConfig>,
 }
 
-/// 获取配置路径：`$XDG_CONFIG_HOME/sema/config.toml` 或 `~/.config/sema/config.toml`
 pub fn config_path() -> PathBuf {
     if let Ok(dir) = std::env::var("XDG_CONFIG_HOME") {
         let mut p = PathBuf::from(dir);
