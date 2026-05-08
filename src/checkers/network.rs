@@ -53,7 +53,7 @@ impl Checker for Network {
             return None;
         }
         Some(Alert {
-            summary: "🌐 Network traffic high".into(),
+            summary: format!("{} Network traffic high", self.cfg.severity_label(total_mbps, false)),
             body: format!("↓ {rx_mbps:.1} ↑ {tx_mbps:.1} MB/s (threshold: {thr} MB/s)",
                 thr = self.cfg.threshold),
         })

@@ -35,7 +35,7 @@ impl Checker for Swap {
         let used_mb = used / (1024 * 1024);
         let total_mb = total / (1024 * 1024);
         Some(Alert {
-            summary: "⚠️ Swap usage high".into(),
+            summary: format!("{} Swap usage high", self.cfg.severity_label(usage, false)),
             body: format!("Swap: {used_mb}MB / {total_mb}MB ({usage:.1}%, threshold: {thr}%)",
                 thr = self.cfg.threshold),
         })

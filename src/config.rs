@@ -44,12 +44,25 @@ pub struct Config {
 pub struct MetricConfig {
     pub enabled: bool,
     pub threshold: f64,
+    /// 严重告警阈值（可选）。高于此值视为 CRITICAL。
+    pub critical: Option<f64>,
     pub cooldown_secs: u64,
 }
 
 impl Default for MetricConfig {
     fn default() -> Self {
-        Self { enabled: true, threshold: 0.0, cooldown_secs: 60 }
+        Self { enabled: true, threshold: 0.0, critical: None, cooldown_secs: 60 }
+    }
+}
+
+impl MetricConfig {
+    /// 根据值判定告警级别标签。`inverted`=true 时越低越严重（如电池）。
+    pub fn severity_label(&self, val: f64, inverted: bool) -> &'static str {
+        if let Some(crit) = self.critical {
+            let severe = if inverted { val < crit } else { val > crit };
+            if severe { return "🔴" }
+        }
+        "⚠️"
     }
 }
 
@@ -92,6 +105,7 @@ macro_rules! metric_defaults {
                 MetricConfig {
                     enabled: true,
                     threshold: $threshold,
+                    critical: None,
                     cooldown_secs: 60,
                 }
             }
@@ -107,11 +121,11 @@ metric_defaults! {
 }
 
 pub fn default_temperature() -> MetricConfig {
-    MetricConfig { enabled: true, threshold: 80.0, cooldown_secs: 60 }
+    MetricConfig { enabled: true, threshold: 80.0, critical: Some(95.0), cooldown_secs: 60 }
 }
 
 pub fn default_network() -> MetricConfig {
-    MetricConfig { enabled: true, threshold: 100.0, cooldown_secs: 60 }
+    MetricConfig { enabled: true, threshold: 100.0, critical: Some(500.0), cooldown_secs: 60 }
 }
 
 pub fn default_time() -> TimeConfig {
@@ -193,6 +207,10 @@ impl Config {
         if m.threshold < lo || m.threshold > hi {
             eprintln!("[sema] warning: {name}.threshold {} out of range [{lo},{hi}], clamped", m.threshold);
             m.threshold = m.threshold.clamp(lo, hi);
+        }
+        if let Some(crit) = &mut m.critical && (*crit < lo || *crit > hi) {
+            eprintln!("[sema] warning: {name}.critical {} out of range [{lo},{hi}], clamped", crit);
+            *crit = crit.clamp(lo, hi);
         }
         if m.cooldown_secs < MIN_COOLDOWN {
             eprintln!("[sema] warning: {name}.cooldown_secs {} < {MIN_COOLDOWN}, set to {MIN_COOLDOWN}",
@@ -288,11 +306,13 @@ pub fn generate_default_config(path: &std::path::Path) -> std::io::Result<()> {
             "[temperature]\n",
             "enabled = true\n",
             "threshold = 80.0\n",
+            "critical = 95.0\n",
             "cooldown_secs = 60\n",
             "\n",
             "[network]\n",
             "enabled = true\n",
             "threshold = 100.0\n",
+            "critical = 500.0\n",
             "cooldown_secs = 60\n",
             "\n",
             "[log]\n",

@@ -38,7 +38,7 @@ impl Checker for Battery {
             return None;
         }
         Some(Alert {
-            summary: "🔋 Battery low".into(),
+            summary: format!("{} Battery low", self.cfg.severity_label(capacity as f64, true)),
             body: format!("Battery: {capacity}% (threshold: {thr}%)", thr = self.cfg.threshold),
         })
     }

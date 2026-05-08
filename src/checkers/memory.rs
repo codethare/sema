@@ -40,7 +40,7 @@ impl Checker for Memory {
             None => format!("Memory: {used_mb}MB / {total_mb}MB ({usage:.1}%, threshold: {thr}%)",
                 thr = self.cfg.threshold),
         };
-        Some(Alert { summary: "⚠️ Memory usage high".into(), body })
+        Some(Alert { summary: format!("{} Memory usage high", self.cfg.severity_label(usage, false)), body })
     }
 
     fn report(&self, sys: &System) -> String {

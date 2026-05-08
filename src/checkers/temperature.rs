@@ -53,7 +53,7 @@ impl Checker for Temperature {
             }
         }
         hottest.map(|(label, temp)| Alert {
-            summary: "🌡️ CPU temperature high".into(),
+            summary: format!("{} CPU temperature high", self.cfg.severity_label(temp as f64, false)),
             body: format!("{label}: {temp:.0}°C (threshold: {thr}°C)", thr = self.cfg.threshold),
         })
     }

@@ -36,7 +36,7 @@ impl Checker for Cpu {
             None => format!("CPU usage: {usage:.1}% (threshold: {thr}%)",
                 thr = self.cfg.threshold),
         };
-        Some(Alert { summary: "⚠️ CPU overloaded".into(), body })
+        Some(Alert { summary: format!("{} CPU overloaded", self.cfg.severity_label(usage, false)), body })
     }
 
     fn report(&self, sys: &System) -> String {
