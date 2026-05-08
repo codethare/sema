@@ -141,10 +141,16 @@ fn main() {
         println!();
         println!("Options:");
         println!("  -n, --dry-run    Print system status and exit (no notifications)");
+        println!("  -V, --version    Print version and exit");
         println!("  -h, --help       Show this help message");
         println!();
         println!("Config: ~/.config/sema/config.toml");
         println!("Log:    ~/.local/share/sema/sema.log");
+        return;
+    }
+
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        println!("sema {}", env!("CARGO_PKG_VERSION"));
         return;
     }
 
