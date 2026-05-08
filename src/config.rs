@@ -250,6 +250,56 @@ pub fn config_path() -> PathBuf {
     p
 }
 
+pub fn generate_default_config(path: &std::path::Path) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path,
+        concat!(
+            "# sema configuration\n",
+            "# See https://github.com/codethare/sema for documentation\n",
+            "\n",
+            "check_interval_secs = 10\n",
+            "\n",
+            "[cpu]\n",
+            "enabled = true\n",
+            "threshold = 50.0\n",
+            "cooldown_secs = 60\n",
+            "\n",
+            "[memory]\n",
+            "enabled = true\n",
+            "threshold = 50.0\n",
+            "cooldown_secs = 60\n",
+            "\n",
+            "[swap]\n",
+            "enabled = true\n",
+            "threshold = 80.0\n",
+            "cooldown_secs = 60\n",
+            "\n",
+            "[battery]\n",
+            "enabled = true\n",
+            "threshold = 84.0\n",
+            "cooldown_secs = 60\n",
+            "\n",
+            "[time]\n",
+            "enabled = true\n",
+            "cooldown_secs = 60\n",
+            "\n",
+            "[temperature]\n",
+            "enabled = true\n",
+            "threshold = 80.0\n",
+            "cooldown_secs = 60\n",
+            "\n",
+            "[network]\n",
+            "enabled = true\n",
+            "threshold = 100.0\n",
+            "cooldown_secs = 60\n",
+            "\n",
+            "[log]\n",
+            "enabled = true\n",
+        ))
+}
+
 fn dirs_next_config_dir() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("XDG_CONFIG_HOME") {
         return Some(PathBuf::from(dir));

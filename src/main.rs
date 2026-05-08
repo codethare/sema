@@ -157,6 +157,7 @@ fn main() {
         println!("Options:");
         println!("  -n, --dry-run    Print system status and exit (no notifications)");
         println!("  -c, --config     Path to config file (default: ~/.config/sema/config.toml)");
+        println!("       --init      Generate default config file and exit");
         println!("  -V, --version    Print version and exit");
         println!("  -h, --help       Show this help message");
         println!();
@@ -167,6 +168,15 @@ fn main() {
 
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("sema {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
+    if args.iter().any(|a| a == "--init") {
+        let path = config::config_path();
+        match config::generate_default_config(&path) {
+            Ok(()) => println!("Default config written to {}\nEdit it and run sema", path.display()),
+            Err(e) => eprintln!("Error: cannot write config to {}: {e}", path.display()),
+        }
         return;
     }
 
