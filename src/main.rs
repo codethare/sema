@@ -17,9 +17,14 @@ use config::Config;
 use sink::Sink;
 
 static HUP_RECEIVED: AtomicBool = AtomicBool::new(false);
+static TERM_RECEIVED: AtomicBool = AtomicBool::new(false);
 
 fn handle_sighup() {
     HUP_RECEIVED.store(true, Ordering::SeqCst);
+}
+
+fn handle_sigterm() {
+    TERM_RECEIVED.store(true, Ordering::SeqCst);
 }
 
 fn sd_notify(state: &str) {
@@ -84,6 +89,12 @@ impl Monitor {
         sd_notify("READY=1\nSTATUS=Monitoring...\nMAINPID=1");
 
         loop {
+            if TERM_RECEIVED.load(Ordering::SeqCst) {
+                println!("\nsema shutting down");
+                sd_notify("STOPPING=1\nSTATUS=Shutting down...\nMAINPID=1");
+                break;
+            }
+
             if HUP_RECEIVED.swap(false, Ordering::SeqCst) {
                 self.reload();
                 sd_notify("RELOADING=1\nSTATUS=Config reloaded\nMAINPID=1");
@@ -156,6 +167,12 @@ fn main() {
 
     if let Err(e) = unsafe { signal_hook::low_level::register(signal_hook::consts::SIGHUP, handle_sighup) } {
         eprintln!("[sema] warning: cannot register SIGHUP handler: {e}");
+    }
+    if let Err(e) = unsafe { signal_hook::low_level::register(signal_hook::consts::SIGTERM, handle_sigterm) } {
+        eprintln!("[sema] warning: cannot register SIGTERM handler: {e}");
+    }
+    if let Err(e) = unsafe { signal_hook::low_level::register(signal_hook::consts::SIGINT, handle_sigterm) } {
+        eprintln!("[sema] warning: cannot register SIGINT handler: {e}");
     }
 
     let dry_run = args.iter().any(|a| a == "--dry-run" || a == "-n");
