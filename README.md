@@ -1,25 +1,29 @@
 # sema (σῆμα)
 
-Arch Linux 系统资源监控守护工具。实时监控 CPU、内存、Swap、电池状态和时间，超出阈值时通过桌面通知（`notify-send`）发出提醒。
+> **σῆμα** (sêma) — Ancient Greek for "signal, alarm".
 
-> **σῆμα** (sêma) — 古希腊语"信号、警报"。
+A lightweight system resource monitoring daemon for Linux. It monitors CPU, memory, swap, battery, and time, and sends desktop notifications via `notify-send` when configured thresholds are exceeded.
 
-## 功能
+[**中文文档 (Chinese)**](README.zh.md)
 
-| 指标 | 默认阈值 | 说明 |
-|------|----------|------|
-| CPU | > 50% | 全局 CPU 使用率超出阈值时提醒 |
-| 内存 | > 50% | 物理内存使用率超出阈值时提醒 |
-| Swap | > 80% | Swap 使用率超出阈值时提醒 |
-| 电池 | < 84% | 电池剩余电量低于阈值时提醒 |
-| 时间 | :00 / :30 | 每小时整点和半点报时提醒 |
+## Features
 
-- 通知冷却：每个指标独立冷却，发送通知后在冷却时间内不再重复
-- 全面可配置：阈值、冷却时间、启用/禁用均可通过 TOML 配置文件调节
+| Metric  | Default Threshold | Description |
+|---------|-------------------|-------------|
+| CPU     | > 50%             | Global CPU usage exceeds threshold |
+| Memory  | > 50%             | Physical memory usage exceeds threshold |
+| Swap    | > 80%             | Swap usage exceeds threshold |
+| Battery | < 84%             | Battery charge drops below threshold |
+| Time    | :00 / :30         | Chime on the hour and half-hour |
 
-## 安装
+- Per-metric notification cooldown — no spam
+- Fully configurable via TOML file
+- Logs all alerts to disk
+- Respects XDG directory standards
 
-### 从源码编译
+## Installation
+
+### From source
 
 ```bash
 git clone https://github.com/codethare/sema.git
@@ -28,44 +32,46 @@ cargo build --release
 sudo cp target/release/sema /usr/local/bin/
 ```
 
-### 从 Release 下载
+### From a release
 
-从 [Releases](https://github.com/codethare/sema/releases) 下载预编译的二进制文件：
+Download the pre-built binary from the [Releases](https://github.com/codethare/sema/releases) page:
 
 ```bash
 chmod +x sema
 sudo mv sema /usr/local/bin/
 ```
 
-## 使用
+## Usage
 
-直接运行进入守护模式：
+Run as a daemon:
 
 ```bash
 sema
 ```
 
-查看系统状态概览（不发送通知）：
+Preview system status without sending notifications:
 
 ```bash
-sema --dry-run    # 或 sema -n
+sema --dry-run    # or sema -n
 ```
 
-显示帮助信息：
+Show help:
 
 ```bash
 sema --help
 ```
 
-开机自启（i3/sway 的 `~/.config/sway/config`）：
+### Autostart
+
+For i3/sway, add to `~/.config/sway/config`:
 
 ```bash
 exec --no-startup-id sema
 ```
 
-### Systemd 用户服务
+### Systemd user service
 
-创建 `~/.config/systemd/user/sema.service`：
+Create `~/.config/systemd/user/sema.service`:
 
 ```ini
 [Unit]
@@ -81,22 +87,22 @@ RestartSec=5
 WantedBy=default.target
 ```
 
-启用：
+Enable it:
 
 ```bash
 systemctl --user enable --now sema
 ```
 
-## 配置
+## Configuration
 
-配置文件位于 `~/.config/sema/config.toml`（或 `$XDG_CONFIG_HOME/sema/config.toml`）。
+Config file: `~/.config/sema/config.toml` (or `$XDG_CONFIG_HOME/sema/config.toml`).
 
-所有字段均有默认值，配置文件可以只包含你想修改的部分。
+All fields have sensible defaults. You only need to specify what you want to change.
 
-### 完整示例
+### Full example
 
 ```toml
-# 全局检测间隔（秒），默认 10
+# Global check interval in seconds (default: 10)
 check_interval_secs = 10
 
 [cpu]
@@ -124,57 +130,57 @@ enabled = true
 cooldown_secs = 60
 ```
 
-### 参数说明
+### Parameters
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `check_interval_secs` | 整数 | 10 | 全局检测间隔（秒） |
-| `[metric].enabled` | 布尔 | true | 启用/禁用该指标 |
-| `[metric].threshold` | 浮点数 | 见上表 | 告警阈值（%） |
-| `[metric].cooldown_secs` | 整数 | 60 | 该指标通知冷却时间（秒） |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `check_interval_secs` | integer | 10 | Global check interval (seconds) |
+| `[metric].enabled` | boolean | true | Enable/disable the metric |
+| `[metric].threshold` | float | see table | Alert threshold (%) |
+| `[metric].cooldown_secs` | integer | 60 | Per-metric notification cooldown (seconds) |
 
-> `[metric]` 可以是 `cpu`、`memory`、`swap`、`battery`。
-> `[time]` 配置没有 `threshold` 字段。
+> `[metric]` can be `cpu`, `memory`, `swap`, or `battery`.
+> `[time]` has no `threshold` field.
 
-### 禁用某个指标
+### Disabling a metric
 
 ```toml
 [cpu]
 enabled = false
 ```
 
-## 日志
+## Logging
 
-所有触发的告警会记录到日志文件：
+All triggered alerts are recorded to:
 
 ```
 ~/.local/share/sema/sema.log
 ```
 
-格式：
+Format:
 
 ```
 [2026-05-08 12:34:56] ⚠️ CPU 负载过高 | 当前 CPU 使用率: 95.0%（阈值: 50.0%）
 ```
 
-查看最新日志：
+Tail the log:
 
 ```bash
 tail -f ~/.local/share/sema/sema.log
 ```
 
-## 使用的 crate
+## Crates used
 
-| crate | 用途 | 版本 |
-|-------|------|------|
-| [sysinfo](https://crates.io/crates/sysinfo) | CPU / 内存 / Swap 信息 | 0.33 |
-| [notify-rust](https://crates.io/crates/notify-rust) | 桌面通知（通过 notify-send） | 4.11 |
-| [chrono](https://crates.io/crates/chrono) | 时间处理 | 0.4 |
-| [serde](https://crates.io/crates/serde) | 配置序列化 | 1 |
-| [toml](https://crates.io/crates/toml) | TOML 配置解析 | 0.8 |
+| Crate | Purpose | Version |
+|-------|---------|---------|
+| [sysinfo](https://crates.io/crates/sysinfo) | CPU / memory / swap info | 0.33 |
+| [notify-rust](https://crates.io/crates/notify-rust) | Desktop notifications (notify-send) | 4.11 |
+| [chrono](https://crates.io/crates/chrono) | Time handling | 0.4 |
+| [serde](https://crates.io/crates/serde) | Config serialization | 1 |
+| [toml](https://crates.io/crates/toml) | TOML config parsing | 0.8 |
 
-电池信息直接读取 Linux 内核 sysfs (`/sys/class/power_supply/BAT*/capacity`)，零额外依赖。
+Battery info is read directly from the Linux kernel sysfs (`/sys/class/power_supply/BAT*/capacity`) — zero extra dependencies.
 
-## 许可证
+## License
 
 MIT
