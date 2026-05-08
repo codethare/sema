@@ -39,8 +39,22 @@ sudo mv sema /usr/local/bin/
 
 ## 使用
 
+直接运行进入守护模式：
+
 ```bash
 sema
+```
+
+查看系统状态概览（不发送通知）：
+
+```bash
+sema --dry-run    # 或 sema -n
+```
+
+显示帮助信息：
+
+```bash
+sema --help
 ```
 
 开机自启（i3/sway 的 `~/.config/sway/config`）：
@@ -127,6 +141,26 @@ cooldown_secs = 60
 ```toml
 [cpu]
 enabled = false
+```
+
+## 日志
+
+所有触发的告警会记录到日志文件：
+
+```
+~/.local/share/sema/sema.log
+```
+
+格式：
+
+```
+[2026-05-08 12:34:56] ⚠️ CPU 负载过高 | 当前 CPU 使用率: 95.0%（阈值: 50.0%）
+```
+
+查看最新日志：
+
+```bash
+tail -f ~/.local/share/sema/sema.log
 ```
 
 ## 使用的 crate

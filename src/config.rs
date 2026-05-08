@@ -160,7 +160,7 @@ struct ConfigRaw {
 }
 
 /// 获取配置路径：`$XDG_CONFIG_HOME/sema/config.toml` 或 `~/.config/sema/config.toml`
-fn config_path() -> PathBuf {
+pub fn config_path() -> PathBuf {
     if let Ok(dir) = std::env::var("XDG_CONFIG_HOME") {
         let mut p = PathBuf::from(dir);
         p.push("sema");
