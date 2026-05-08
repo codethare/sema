@@ -44,10 +44,11 @@ struct Monitor {
     sink: Sink,
     checkers: Vec<Box<dyn Checker>>,
     check_interval: Duration,
+    config_path: Option<std::path::PathBuf>,
 }
 
 impl Monitor {
-    fn new(cfg: Config, dry_run: bool) -> Self {
+    fn new(cfg: Config, dry_run: bool, config_path: Option<std::path::PathBuf>) -> Self {
         let sys = System::new_with_specifics(
             RefreshKind::nothing()
                 .with_cpu(CpuRefreshKind::everything())
@@ -58,11 +59,11 @@ impl Monitor {
         let log_enabled = cfg.log.enabled;
         let checkers = cfg.into_checkers();
         let sink = Sink::new(dry_run, log_enabled);
-        Self { sys, sink, checkers, check_interval }
+        Self { sys, sink, checkers, check_interval, config_path }
     }
 
     fn reload(&mut self) {
-        let cfg = Config::load();
+        let cfg = Config::load_from(self.config_path.as_deref());
         self.check_interval = Duration::from_secs(cfg.check_interval_secs);
         self.checkers = cfg.into_checkers();
         eprintln!("[sema] config reloaded ({} checkers)", self.checkers.len());
@@ -70,17 +71,20 @@ impl Monitor {
 
     fn print_banner(&self) {
         let mode = if self.sink.dry_run { " (dry-run)" } else { "" };
+        let config_display = self.config_path.as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| config::config_path().display().to_string());
         println!(
-            "🔍 sema {}{}\n\
+            "🔍 sema {version}{mode}\n\
              ──────────────────────────────────\n\
-             config:  {}\n\
-             log:     {}\n\
-             interval: {}s\n",
-            env!("CARGO_PKG_VERSION"),
-            mode,
-            config::config_path().display(),
-            Sink::log_path_display(),
-            self.check_interval.as_secs(),
+             config:  {config_display}\n\
+             log:     {log_path}\n\
+             interval: {interval}s\n",
+            version = env!("CARGO_PKG_VERSION"),
+            mode = mode,
+            config_display = config_display,
+            log_path = Sink::log_path_display(),
+            interval = self.check_interval.as_secs(),
         );
     }
 
@@ -152,6 +156,7 @@ fn main() {
         println!();
         println!("Options:");
         println!("  -n, --dry-run    Print system status and exit (no notifications)");
+        println!("  -c, --config     Path to config file (default: ~/.config/sema/config.toml)");
         println!("  -V, --version    Print version and exit");
         println!("  -h, --help       Show this help message");
         println!();
@@ -176,8 +181,28 @@ fn main() {
     }
 
     let dry_run = args.iter().any(|a| a == "--dry-run" || a == "-n");
-    let cfg = Config::load();
-    let mut monitor = Monitor::new(cfg, dry_run);
+
+    let config_path = {
+        let mut i = 0;
+        let mut path = None;
+        while i < args.len() {
+            if args[i] == "--config" || args[i] == "-c" {
+                if i + 1 < args.len() {
+                    path = Some(std::path::PathBuf::from(&args[i + 1]));
+                }
+                i += 2;
+            } else {
+                i += 1;
+            }
+        }
+        path
+    };
+
+    let cfg = match &config_path {
+        Some(p) => Config::load_from(Some(p)),
+        None => Config::load(),
+    };
+    let mut monitor = Monitor::new(cfg, dry_run, config_path);
 
     if dry_run {
         monitor.dry_run();

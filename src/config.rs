@@ -128,7 +128,11 @@ impl Config {
     }
 
     pub fn load() -> Self {
-        let path = config_path();
+        Self::load_from(None)
+    }
+
+    pub fn load_from(path: Option<&std::path::Path>) -> Self {
+        let path = path.map(|p| p.to_path_buf()).unwrap_or_else(config_path);
         if !path.exists() {
             return Config::default();
         }
