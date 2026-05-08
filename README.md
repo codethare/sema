@@ -34,10 +34,18 @@ sudo cp target/release/sema /usr/local/bin/
 
 ### From a release
 
-Download the pre-built binary from the [Releases](https://github.com/codethare/sema/releases) page:
+Download the latest archive from the [Releases](https://github.com/codethare/sema/releases) page:
 
 ```bash
-chmod +x sema
+# Download and verify
+curl -OL https://github.com/codethare/sema/releases/latest/download/sema-x86_64-linux-musl.tar.gz
+curl -OL https://github.com/codethare/sema/releases/latest/download/sema-x86_64-linux-musl.tar.gz.sha256
+
+# Verify checksum
+sha256sum --check sema-x86_64-linux-musl.tar.gz.sha256
+
+# Extract and install
+tar xzf sema-x86_64-linux-musl.tar.gz
 sudo mv sema /usr/local/bin/
 ```
 

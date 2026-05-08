@@ -30,10 +30,18 @@ sudo cp target/release/sema /usr/local/bin/
 
 ### 从 Release 下载
 
-从 [Releases](https://github.com/codethare/sema/releases) 下载预编译的二进制文件：
+从 [Releases](https://github.com/codethare/sema/releases) 下载预编译的归档包：
 
 ```bash
-chmod +x sema
+# 下载并校验
+curl -OL https://github.com/codethare/sema/releases/latest/download/sema-x86_64-linux-musl.tar.gz
+curl -OL https://github.com/codethare/sema/releases/latest/download/sema-x86_64-linux-musl.tar.gz.sha256
+
+# 校验 SHA256
+sha256sum --check sema-x86_64-linux-musl.tar.gz.sha256
+
+# 解压安装
+tar xzf sema-x86_64-linux-musl.tar.gz
 sudo mv sema /usr/local/bin/
 ```
 
