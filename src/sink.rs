@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
@@ -49,6 +49,7 @@ fn write_log(summary: &str, body: &str) {
 pub struct Sink {
     last_notified: HashMap<String, Instant>,
     condition_started: HashMap<String, Instant>,
+    was_active: HashSet<String>,
     log_enabled: bool,
     pub dry_run: bool,
 }
@@ -58,6 +59,7 @@ impl Sink {
         Self {
             last_notified: HashMap::new(),
             condition_started: HashMap::new(),
+            was_active: HashSet::new(),
             log_enabled,
             dry_run,
         }
@@ -83,14 +85,18 @@ impl Sink {
         }
     }
 
-    pub fn note_active(&mut self, key: &str, is_active: bool) {
+    pub fn note_active(&mut self, key: &str, is_active: bool) -> bool {
+        let was = self.was_active.contains(key);
         if is_active {
+            self.was_active.insert(key.to_string());
             self.condition_started
                 .entry(key.to_string())
                 .or_insert_with(Instant::now);
         } else {
             self.condition_started.remove(key);
+            self.was_active.remove(key);
         }
+        was && !is_active
     }
 
     pub fn notify(&mut self, key: &str, cooldown_secs: u64, alert: &Alert) {
@@ -106,7 +112,7 @@ impl Sink {
             println!("       {body}");
             return;
         }
-        if !self.can_notify(key, cooldown_secs) {
+        if cooldown_secs > 0 && !self.can_notify(key, cooldown_secs) {
             return;
         }
         let ok = Notification::new()
@@ -119,7 +125,9 @@ impl Sink {
             if self.log_enabled {
                 write_log(&alert.summary, &body);
             }
-            self.last_notified.insert(key.to_string(), Instant::now());
+            if cooldown_secs > 0 {
+                self.last_notified.insert(key.to_string(), Instant::now());
+            }
         }
     }
 

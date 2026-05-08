@@ -120,7 +120,13 @@ impl Monitor {
                         sink.notify(key, cooldown, &alert);
                     }
                     Ok(None) => {
-                        sink.note_active(key, false);
+                        if sink.note_active(key, false) {
+                            let recovery = checkers::Alert {
+                                summary: format!("✅ {key} back to normal"),
+                                body: String::new(),
+                            };
+                            sink.notify(key, 0, &recovery);
+                        }
                     }
                     Err(_) => {
                         eprintln!("[sema] checker '{key}' panicked, continuing");
