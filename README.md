@@ -10,19 +10,24 @@ A lightweight system resource monitoring daemon for Linux. It monitors CPU, memo
 
 | Metric      | Default Threshold | Description |
 |-------------|-------------------|-------------|
-| CPU         | > 50%             | Global CPU usage. Shows top process. |
-| Memory      | > 50%             | Physical memory usage. Shows top process. |
-| Swap        | > 80%             | Swap usage. |
-| Battery     | < 84%             | Battery charge level. |
-| Temperature | > 80°C            | CPU/GPU/NVMe component temperature. Shows hottest sensor. |
-| Network     | > 100 MB/s        | Total network throughput (RX + TX). |
+| CPU         | > 50% (⚠️) / critical (🔴) | Global CPU usage. Shows top 3 processes. |
+| Memory      | > 50% (⚠️) / critical (🔴) | Physical memory usage. Shows top 3 processes. |
+| Swap        | > 80% (⚠️)                  | Swap usage. |
+| Battery     | < 84% (⚠️)                  | Battery charge level. |
+| Temperature | > 80°C (⚠️) / > 95°C (🔴)  | CPU component temperature only (excludes GPU/NVMe). |
+| Network     | > 100 MB/s (⚠️) / > 500 MB/s (🔴) | Total network throughput (RX + TX). |
 | Time        | :00 / :30         | Chime on the hour and half-hour. |
 
 - Per-metric notification cooldown — no spam
-- Notification shows **duration** the condition has persisted (e.g. "持续 5m30s")
-- Notification includes the **top resource-consuming process** (CPU/memory alerts)
+- **Two alert levels**: warning (⚠️) and **critical (🔴)** — configurable per metric
+- **Recovery notifications**: notified when a metric returns to normal (✅)
+- **Auto-grouping**: multiple concurrent alerts combined into a single notification
+- Notification shows **duration** the condition has persisted
+- Notification includes **top 3 resource-consuming processes** (CPU/memory alerts)
 - Fully configurable via TOML file
+- Config values are **automatically validated and clamped** on load
 - Logs all alerts to disk with **auto-rotation** (5 MB)
+- **Graceful shutdown** on SIGTERM/SIGINT with sd_notify
 - **SIGHUP hot reload** — reload config without restarting
 - **sd_notify** support — integrates with systemd watchdog
 - Respects XDG directory standards
@@ -73,6 +78,24 @@ Show help:
 
 ```bash
 sema --help
+```
+
+Print version:
+
+```bash
+sema --version    # or sema -V
+```
+
+Use a custom config file:
+
+```bash
+sema -c /path/to/config.toml
+```
+
+Generate a default config file (**first run**):
+
+```bash
+sema --init
 ```
 
 Reload config without restart (send SIGHUP):
@@ -156,11 +179,13 @@ cooldown_secs = 60
 [temperature]
 enabled = true
 threshold = 80.0
+critical = 95.0
 cooldown_secs = 60
 
 [network]
 enabled = true
 threshold = 100.0
+critical = 500.0
 cooldown_secs = 60
 
 [log]
@@ -173,7 +198,8 @@ enabled = true
 |-----------|------|---------|-------------|
 | `check_interval_secs` | integer | 10 | Global check interval (seconds) |
 | `[metric].enabled` | boolean | true | Enable/disable the metric |
-| `[metric].threshold` | float | see table | Alert threshold (%) |
+| `[metric].threshold` | float | see table | Warning alert threshold |
+| `[metric].critical` | float | unset | Critical alert threshold (when set, 🔴 replaces ⚠️) |
 | `[metric].cooldown_secs` | integer | 60 | Per-metric notification cooldown (seconds) |
 | `[log].enabled` | boolean | true | Enable/disable log file |
 
