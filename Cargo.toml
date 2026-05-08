@@ -8,9 +8,9 @@ license = "MIT"
 repository = "https://github.com/codethare/sema"
 
 [dependencies]
-sysinfo = "0.33"
-notify-rust = "4.11"
+sysinfo = "0.39"
+notify-rust = "4.17"
 chrono = "0.4"
 serde = { version = "1", features = ["derive"] }
-toml = "0.8"
-signal-hook = "0.3"
+toml = "1.1"
+signal-hook = "0.4"
