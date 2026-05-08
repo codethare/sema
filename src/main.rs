@@ -92,9 +92,6 @@ impl Monitor {
             let sys = &self.sys;
             let sink = &mut self.sink;
             for c in &mut self.checkers {
-                if !c.enabled() {
-                    continue;
-                }
                 if let Some(alert) = c.check(sys) {
                     let key = c.key();
                     sink.note_active(key, true);

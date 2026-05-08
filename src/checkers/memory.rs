@@ -22,10 +22,6 @@ impl Checker for Memory {
         self.cfg.cooldown_secs
     }
 
-    fn enabled(&self) -> bool {
-        self.cfg.enabled
-    }
-
     fn check(&mut self, sys: &System) -> Option<Alert> {
         let total = sys.total_memory();
         let used = sys.used_memory();

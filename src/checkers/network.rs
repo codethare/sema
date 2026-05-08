@@ -24,10 +24,6 @@ impl Checker for Network {
         self.cfg.cooldown_secs
     }
 
-    fn enabled(&self) -> bool {
-        self.cfg.enabled
-    }
-
     fn check(&mut self, _sys: &System) -> Option<Alert> {
         let networks = Networks::new_with_refreshed_list();
         let mut total_rx = 0u64;

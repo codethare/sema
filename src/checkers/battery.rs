@@ -32,10 +32,6 @@ impl Checker for Battery {
         self.cfg.cooldown_secs
     }
 
-    fn enabled(&self) -> bool {
-        self.cfg.enabled
-    }
-
     fn check(&mut self, _sys: &System) -> Option<Alert> {
         let capacity = Self::read_capacity()?;
         if (capacity as f64) >= self.cfg.threshold {

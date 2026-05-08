@@ -23,10 +23,6 @@ impl Checker for TimeChecker {
         self.cfg.cooldown_secs
     }
 
-    fn enabled(&self) -> bool {
-        self.cfg.enabled
-    }
-
     fn check(&mut self, _sys: &System) -> Option<Alert> {
         let now = Local::now();
         let minute = now.minute();

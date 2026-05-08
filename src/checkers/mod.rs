@@ -22,23 +22,21 @@ pub trait Checker {
     fn key(&self) -> &'static str;
     /// 通知冷却秒数
     fn cooldown_secs(&self) -> u64;
-    /// 是否启用
-    fn enabled(&self) -> bool;
     /// 正常检测：超阈值返回 Some(Alert)，否则 None
     fn check(&mut self, sys: &System) -> Option<Alert>;
     /// dry-run 一行状态文本
     fn report(&self, sys: &System) -> String;
 }
 
-/// 从 Config 消费创建全部检测器
+/// 从 Config 消费创建启用的检测器（enabled = true 的才会构建）
 pub fn all_checkers(cfg: Config) -> Vec<Box<dyn Checker>> {
-    vec![
-        Box::new(cpu::Cpu::new(cfg.cpu)),
-        Box::new(memory::Memory::new(cfg.memory)),
-        Box::new(swap::Swap::new(cfg.swap)),
-        Box::new(battery::Battery::new(cfg.battery)),
-        Box::new(time::TimeChecker::new(cfg.time)),
-        Box::new(temperature::Temperature::new(cfg.temperature)),
-        Box::new(network::Network::new(cfg.network)),
-    ]
+    let mut v: Vec<Box<dyn Checker>> = Vec::new();
+    if cfg.cpu.enabled { v.push(Box::new(cpu::Cpu::new(cfg.cpu))); }
+    if cfg.memory.enabled { v.push(Box::new(memory::Memory::new(cfg.memory))); }
+    if cfg.swap.enabled { v.push(Box::new(swap::Swap::new(cfg.swap))); }
+    if cfg.battery.enabled { v.push(Box::new(battery::Battery::new(cfg.battery))); }
+    if cfg.time.enabled { v.push(Box::new(time::TimeChecker::new(cfg.time))); }
+    if cfg.temperature.enabled { v.push(Box::new(temperature::Temperature::new(cfg.temperature))); }
+    if cfg.network.enabled { v.push(Box::new(network::Network::new(cfg.network))); }
+    v
 }

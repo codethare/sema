@@ -22,10 +22,6 @@ impl Checker for Cpu {
         self.cfg.cooldown_secs
     }
 
-    fn enabled(&self) -> bool {
-        self.cfg.enabled
-    }
-
     fn check(&mut self, sys: &System) -> Option<Alert> {
         let usage = sys.global_cpu_usage() as f64;
         if usage <= self.cfg.threshold {

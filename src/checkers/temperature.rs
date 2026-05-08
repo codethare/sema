@@ -22,10 +22,6 @@ impl Checker for Temperature {
         self.cfg.cooldown_secs
     }
 
-    fn enabled(&self) -> bool {
-        self.cfg.enabled
-    }
-
     fn check(&mut self, _sys: &System) -> Option<Alert> {
         let components = Components::new_with_refreshed_list();
         let mut hottest: Option<(String, f32)> = None;
