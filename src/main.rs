@@ -107,6 +107,15 @@ impl Monitor {
                 sd_notify("WATCHDOG=1\nSTATUS=Monitoring...\nMAINPID=1");
             }
 
+            // Phase 1: run all checks, collect alerts
+            struct PendingAlert<'a> {
+                key: &'a str,
+                cooldown: u64,
+                alert: checkers::Alert,
+            }
+            let mut pending: Vec<PendingAlert> = Vec::new();
+            let mut crash_keys: Vec<&str> = Vec::new();
+
             let sys = &self.sys;
             let sink = &mut self.sink;
             for c in &mut self.checkers {
@@ -117,26 +126,49 @@ impl Monitor {
                 match result {
                     Ok(Some(alert)) => {
                         sink.note_active(key, true);
-                        sink.notify(key, cooldown, &alert);
+                        pending.push(PendingAlert { key, cooldown, alert });
                     }
                     Ok(None) => {
                         if sink.note_active(key, false) {
-                            let recovery = checkers::Alert {
-                                summary: format!("✅ {key} back to normal"),
-                                body: String::new(),
-                            };
-                            sink.notify(key, 0, &recovery);
+                            pending.push(PendingAlert {
+                                key, cooldown: 0,
+                                alert: checkers::Alert {
+                                    summary: format!("✅ {key} back to normal"),
+                                    body: String::new(),
+                                },
+                            });
                         }
                     }
                     Err(_) => {
                         eprintln!("[sema] checker '{key}' panicked, continuing");
-                        let _ = Notification::new()
-                            .summary("⚠️ sema: checker crashed")
-                            .body(&format!("'{key}' panicked, sema is still running"))
-                            .appname("sema")
-                            .show();
+                        crash_keys.push(key);
                     }
                 }
+            }
+
+            for k in crash_keys {
+                let _ = Notification::new()
+                    .summary("⚠️ sema: checker crashed")
+                    .body(&format!("'{k}' panicked, sema is still running"))
+                    .appname("sema")
+                    .show();
+            }
+
+            // Phase 2: send grouped or individual notifications
+            if pending.len() == 1 {
+                let p = &pending[0];
+                sink.notify(p.key, p.cooldown, &p.alert);
+            } else if !pending.is_empty() {
+                let min_cooldown = pending.iter().map(|p| p.cooldown).min().unwrap_or(60);
+                let body = pending.iter()
+                    .map(|a| format!("{}: {}", a.alert.summary, a.alert.body))
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                let composite = checkers::Alert {
+                    summary: format!("{} alerts", pending.len()),
+                    body,
+                };
+                sink.notify("group", min_cooldown, &composite);
             }
             sleep(self.check_interval);
         }
