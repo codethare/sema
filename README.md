@@ -1,24 +1,21 @@
-# sema
+# sema (σῆμα)
 
-Arch Linux 系统资源监控守护工具。实时监控 CPU、内存、Swap、电池状态和时间，超出阈值时通过桌面通知（`notify-send`）发出提醒，每条通知有 1 分钟冷却防刷。
+Arch Linux 系统资源监控守护工具。实时监控 CPU、内存、Swap、电池状态和时间，超出阈值时通过桌面通知（`notify-send`）发出提醒。
+
+> **σῆμα** (sêma) — 古希腊语"信号、警报"。
 
 ## 功能
 
-| 指标 | 阈值 | 说明 |
-|------|------|------|
-| CPU | > 50% | 全局 CPU 使用率超出 50% 时提醒 |
-| 内存 | > 50% | 物理内存使用率超出 50% 时提醒 |
-| Swap | > 80% | Swap 使用率超出 80% 时提醒 |
-| 电池 | < 84% | 电池剩余电量低于 84% 时提醒 |
+| 指标 | 默认阈值 | 说明 |
+|------|----------|------|
+| CPU | > 50% | 全局 CPU 使用率超出阈值时提醒 |
+| 内存 | > 50% | 物理内存使用率超出阈值时提醒 |
+| Swap | > 80% | Swap 使用率超出阈值时提醒 |
+| 电池 | < 84% | 电池剩余电量低于阈值时提醒 |
 | 时间 | :00 / :30 | 每小时整点和半点报时提醒 |
 
-- 通知冷却：每个指标独立冷却，发送通知后 60 秒内不再重复
-- 检测间隔：每 10 秒扫描一次
-
-## 依赖
-
-- **Rust** 1.85+
-- **libnotify**（提供 `notify-send`，大多数桌面环境已预装）
+- 通知冷却：每个指标独立冷却，发送通知后在冷却时间内不再重复
+- 全面可配置：阈值、冷却时间、启用/禁用均可通过 TOML 配置文件调节
 
 ## 安装
 
@@ -42,19 +39,17 @@ sudo mv sema /usr/local/bin/
 
 ## 使用
 
-直接运行即可：
-
 ```bash
 sema
 ```
 
-建议添加到自动启动（如 i3/sway 的 `~/.config/sway/config` 或 KDE/GNOME 的自动启动设置）：
+开机自启（i3/sway 的 `~/.config/sway/config`）：
 
 ```bash
 exec --no-startup-id sema
 ```
 
-### Systemd 用户服务（可选）
+### Systemd 用户服务
 
 创建 `~/.config/systemd/user/sema.service`：
 
@@ -78,6 +73,62 @@ WantedBy=default.target
 systemctl --user enable --now sema
 ```
 
+## 配置
+
+配置文件位于 `~/.config/sema/config.toml`（或 `$XDG_CONFIG_HOME/sema/config.toml`）。
+
+所有字段均有默认值，配置文件可以只包含你想修改的部分。
+
+### 完整示例
+
+```toml
+# 全局检测间隔（秒），默认 10
+check_interval_secs = 10
+
+[cpu]
+enabled = true
+threshold = 50.0
+cooldown_secs = 60
+
+[memory]
+enabled = true
+threshold = 50.0
+cooldown_secs = 60
+
+[swap]
+enabled = true
+threshold = 80.0
+cooldown_secs = 60
+
+[battery]
+enabled = true
+threshold = 84.0
+cooldown_secs = 60
+
+[time]
+enabled = true
+cooldown_secs = 60
+```
+
+### 参数说明
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `check_interval_secs` | 整数 | 10 | 全局检测间隔（秒） |
+| `[metric].enabled` | 布尔 | true | 启用/禁用该指标 |
+| `[metric].threshold` | 浮点数 | 见上表 | 告警阈值（%） |
+| `[metric].cooldown_secs` | 整数 | 60 | 该指标通知冷却时间（秒） |
+
+> `[metric]` 可以是 `cpu`、`memory`、`swap`、`battery`。
+> `[time]` 配置没有 `threshold` 字段。
+
+### 禁用某个指标
+
+```toml
+[cpu]
+enabled = false
+```
+
 ## 使用的 crate
 
 | crate | 用途 | 版本 |
@@ -85,6 +136,8 @@ systemctl --user enable --now sema
 | [sysinfo](https://crates.io/crates/sysinfo) | CPU / 内存 / Swap 信息 | 0.33 |
 | [notify-rust](https://crates.io/crates/notify-rust) | 桌面通知（通过 notify-send） | 4.11 |
 | [chrono](https://crates.io/crates/chrono) | 时间处理 | 0.4 |
+| [serde](https://crates.io/crates/serde) | 配置序列化 | 1 |
+| [toml](https://crates.io/crates/toml) | TOML 配置解析 | 0.8 |
 
 电池信息直接读取 Linux 内核 sysfs (`/sys/class/power_supply/BAT*/capacity`)，零额外依赖。
 

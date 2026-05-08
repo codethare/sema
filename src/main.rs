@@ -1,3 +1,5 @@
+mod config;
+
 use std::collections::HashMap;
 use std::fs;
 use std::thread::sleep;
@@ -6,39 +8,41 @@ use std::time::{Duration, Instant};
 use chrono::{Local, Timelike};
 use notify_rust::Notification;
 use sysinfo::{
-    CpuRefreshKind, MemoryRefreshKind, RefreshKind, System, MINIMUM_CPU_UPDATE_INTERVAL,
+    CpuRefreshKind, MemoryRefreshKind, RefreshKind, System,
 };
 
-const COOLDOWN_SECS: u64 = 60;
-const CPU_THRESHOLD: f32 = 50.0;
-const MEM_THRESHOLD: f64 = 50.0;
-const SWAP_THRESHOLD: f64 = 80.0;
-const BATT_THRESHOLD: f64 = 84.0;
-const CHECK_INTERVAL: Duration = Duration::from_secs(10);
+use config::{Config, MetricConfig, TimeConfig};
 
-struct ArchMonitor {
+struct Monitor {
     sys: System,
+    cfg: Config,
     last_notified: HashMap<String, Instant>,
 }
 
-impl ArchMonitor {
-    fn new() -> Self {
+impl Monitor {
+    fn new(cfg: Config) -> Self {
         let sys = System::new_with_specifics(
             RefreshKind::nothing()
                 .with_cpu(CpuRefreshKind::everything())
                 .with_memory(MemoryRefreshKind::everything()),
         );
-        Self { sys, last_notified: HashMap::new() }
+        Self { sys, cfg, last_notified: HashMap::new() }
     }
 
-    fn can_notify(&self, key: &str) -> bool {
+    fn can_notify(&self, key: &str, cooldown_secs: u64) -> bool {
         self.last_notified
             .get(key)
-            .map_or(true, |t| t.elapsed() >= Duration::from_secs(COOLDOWN_SECS))
+            .map_or(true, |t| t.elapsed() >= Duration::from_secs(cooldown_secs))
     }
 
-    fn send_notification(&mut self, key: &str, summary: &str, body: &str) {
-        if !self.can_notify(key) {
+    fn send_notification(
+        &mut self,
+        key: &str,
+        cooldown_secs: u64,
+        summary: &str,
+        body: &str,
+    ) {
+        if !self.can_notify(key, cooldown_secs) {
             return;
         }
         if let Err(e) = Notification::new()
@@ -47,46 +51,57 @@ impl ArchMonitor {
             .appname("sema")
             .show()
         {
-            eprintln!("[sema] 通知发送失败: {e}");
+            eprintln!("[sema] {e}");
+        } else {
+            self.last_notified.insert(key.to_string(), Instant::now());
         }
-        self.last_notified.insert(key.to_string(), Instant::now());
     }
 
-    fn check_cpu(&mut self) {
+    fn check_cpu(&mut self, cfg: &MetricConfig) {
+        if !cfg.enabled {
+            return;
+        }
+        // refresh_cpu_usage() 每次调用都会与上次数据比较得出实际使用率。
+        // 主循环间隔 10s >> sysinfo 所需的最小间隔，无需额外 sleep。
         self.sys.refresh_cpu_usage();
-        sleep(MINIMUM_CPU_UPDATE_INTERVAL);
-        self.sys.refresh_cpu_usage();
-
-        let usage = self.sys.global_cpu_usage();
-        if usage > CPU_THRESHOLD {
+        let usage = self.sys.global_cpu_usage() as f64;
+        if usage > cfg.threshold {
             self.send_notification(
                 "cpu",
+                cfg.cooldown_secs,
                 "⚠️ CPU 负载过高",
-                &format!("当前 CPU 使用率: {usage:.1}%（阈值: {CPU_THRESHOLD:.0}%）"),
+                &format!("当前 CPU 使用率: {usage:.1}%（阈值: {thr}%）",
+                    thr = cfg.threshold),
             );
         }
     }
 
-    fn check_memory(&mut self) {
+    fn check_memory(&mut self, cfg: &MetricConfig) {
+        if !cfg.enabled {
+            return;
+        }
         self.sys.refresh_memory();
         let total = self.sys.total_memory();
         let used = self.sys.used_memory();
         let usage = used as f64 / total as f64 * 100.0;
 
-        if usage > MEM_THRESHOLD {
+        if usage > cfg.threshold {
             let used_mb = used / (1024 * 1024);
             let total_mb = total / (1024 * 1024);
             self.send_notification(
                 "memory",
+                cfg.cooldown_secs,
                 "⚠️ 内存使用过高",
-                &format!(
-                    "当前内存: {used_mb}MB / {total_mb}MB ({usage:.1}%，阈值: {MEM_THRESHOLD}%)"
-                ),
+                &format!("当前内存: {used_mb}MB / {total_mb}MB ({usage:.1}%，阈值: {thr}%)",
+                    thr = cfg.threshold),
             );
         }
     }
 
-    fn check_swap(&mut self) {
+    fn check_swap(&mut self, cfg: &MetricConfig) {
+        if !cfg.enabled {
+            return;
+        }
         self.sys.refresh_memory();
         let total = self.sys.total_swap();
         if total == 0 {
@@ -95,26 +110,31 @@ impl ArchMonitor {
         let used = self.sys.used_swap();
         let usage = used as f64 / total as f64 * 100.0;
 
-        if usage > SWAP_THRESHOLD {
+        if usage > cfg.threshold {
             let used_mb = used / (1024 * 1024);
             let total_mb = total / (1024 * 1024);
             self.send_notification(
                 "swap",
+                cfg.cooldown_secs,
                 "⚠️ Swap 使用过高",
-                &format!(
-                    "当前 Swap: {used_mb}MB / {total_mb}MB ({usage:.1}%，阈值: {SWAP_THRESHOLD}%)"
-                ),
+                &format!("当前 Swap: {used_mb}MB / {total_mb}MB ({usage:.1}%，阈值: {thr}%)",
+                    thr = cfg.threshold),
             );
         }
     }
 
-    fn check_battery(&mut self) {
+    fn check_battery(&mut self, cfg: &MetricConfig) {
+        if !cfg.enabled {
+            return;
+        }
         if let Some(capacity) = Self::read_battery_capacity() {
-            if (capacity as f64) < BATT_THRESHOLD {
+            if (capacity as f64) < cfg.threshold {
                 self.send_notification(
                     "battery",
+                    cfg.cooldown_secs,
                     "🔋 电池电量不足",
-                    &format!("当前电量: {capacity}%（阈值: {BATT_THRESHOLD}%）"),
+                    &format!("当前电量: {capacity}%（阈值: {thr}%）",
+                        thr = cfg.threshold),
                 );
             }
         }
@@ -135,7 +155,10 @@ impl ArchMonitor {
         None
     }
 
-    fn check_time(&mut self) {
+    fn check_time(&mut self, cfg: &TimeConfig) {
+        if !cfg.enabled {
+            return;
+        }
         let now = Local::now();
         let hour = now.hour();
         let minute = now.minute();
@@ -143,6 +166,7 @@ impl ArchMonitor {
         if minute == 0 || minute == 30 {
             self.send_notification(
                 "time",
+                cfg.cooldown_secs,
                 "⏰ 时间提醒",
                 &format!("现在是 {hour}:{minute:02}"),
             );
@@ -150,27 +174,33 @@ impl ArchMonitor {
     }
 
     fn run(&mut self) {
+        let c = self.cfg.clone();
         println!(
-            "🔍 sema 已启动，每 {}s 检测一次\n\
-             CPU 阈值: {CPU_THRESHOLD}% | 内存阈值: {MEM_THRESHOLD}% | \
-             Swap 阈值: {SWAP_THRESHOLD}% | 电池阈值: {BATT_THRESHOLD}%\n\
-             整点/半点时间提醒 · 通知冷却 {COOLDOWN_SECS}s\n",
-            CHECK_INTERVAL.as_secs(),
+            "🔍 sema {}\n\
+             检测间隔: {}s\n\
+             CPU:     {} {:>4}%  | 内存: {} {:>4}%  | Swap: {} {:>4}%  | 电池: {} {:>4}%  | 时间: {}\n",
+            env!("CARGO_PKG_VERSION"),
+            c.check_interval_secs,
+            if c.cpu.enabled { "✔" } else { "✗" }, c.cpu.threshold,
+            if c.memory.enabled { "✔" } else { "✗" }, c.memory.threshold,
+            if c.swap.enabled { "✔" } else { "✗" }, c.swap.threshold,
+            if c.battery.enabled { "✔" } else { "✗" }, c.battery.threshold,
+            if c.time.enabled { "✔ 整点/半点" } else { "✗" },
         );
 
         loop {
-            self.check_cpu();
-            self.check_memory();
-            self.check_swap();
-            self.check_battery();
-            self.check_time();
-            sleep(CHECK_INTERVAL);
+            self.check_cpu(&c.cpu);
+            self.check_memory(&c.memory);
+            self.check_swap(&c.swap);
+            self.check_battery(&c.battery);
+            self.check_time(&c.time);
+            sleep(Duration::from_secs(c.check_interval_secs));
         }
     }
 }
 
 fn main() {
-    let mut monitor = ArchMonitor::new();
+    let cfg = Config::load();
+    let mut monitor = Monitor::new(cfg);
     monitor.run();
 }
-
