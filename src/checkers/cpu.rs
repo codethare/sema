@@ -27,15 +27,16 @@ impl Checker for Cpu {
         if usage <= self.cfg.threshold {
             return None;
         }
-        let top = sys.processes()
-            .iter()
-            .max_by(|(_, a), (_, b)| a.cpu_usage().total_cmp(&b.cpu_usage()));
-        let body = match top {
-            Some((_, p)) => format!("CPU usage: {usage:.1}% (top: {} {:.1}%, threshold: {thr}%)",
-                p.name().to_string_lossy(), p.cpu_usage(), thr = self.cfg.threshold),
-            None => format!("CPU usage: {usage:.1}% (threshold: {thr}%)",
-                thr = self.cfg.threshold),
+        let top3: Vec<String> = {
+            let mut procs: Vec<(f32, String)> = sys.processes()
+                .values()
+                .map(|p| (p.cpu_usage(), p.name().to_string_lossy().into_owned()))
+                .collect();
+            procs.sort_by(|a, b| b.0.total_cmp(&a.0));
+            procs.truncate(3);
+            procs.into_iter().map(|(cpu, name)| format!("{name} {cpu:.1}%")).collect()
         };
+        let body = format!("CPU usage: {usage:.1}%  top: {}", top3.join(", "));
         Some(Alert { summary: format!("{} CPU overloaded", self.cfg.severity_label(usage, false)), body })
     }
 

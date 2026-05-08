@@ -131,6 +131,10 @@ impl Sink {
         }
     }
 
+    pub fn set_log_enabled(&mut self, enabled: bool) {
+        self.log_enabled = enabled;
+    }
+
     pub fn log_path_display() -> String {
         log_path().display().to_string()
     }

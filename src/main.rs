@@ -64,8 +64,10 @@ impl Monitor {
 
     fn reload(&mut self) {
         let cfg = Config::load_from(self.config_path.as_deref());
+        let log_enabled = cfg.log.enabled;
         self.check_interval = Duration::from_secs(cfg.check_interval_secs);
         self.checkers = cfg.into_checkers();
+        self.sink.set_log_enabled(log_enabled);
         eprintln!("[sema] config reloaded ({} checkers)", self.checkers.len());
     }
 

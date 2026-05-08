@@ -31,15 +31,19 @@ impl Checker for Memory {
         }
         let used_mb = used / (1024 * 1024);
         let total_mb = total / (1024 * 1024);
-        let top = sys.processes()
-            .iter()
-            .max_by_key(|(_, p)| p.memory());
-        let body = match top {
-            Some((_, p)) => format!("Memory: {used_mb}MB / {total_mb}MB ({usage:.1}%, top: {} {}MB, threshold: {thr}%)",
-                p.name().to_string_lossy(), p.memory() / (1024 * 1024), thr = self.cfg.threshold),
-            None => format!("Memory: {used_mb}MB / {total_mb}MB ({usage:.1}%, threshold: {thr}%)",
-                thr = self.cfg.threshold),
+        let top3: Vec<String> = {
+            let mut procs: Vec<(u64, String)> = sys.processes()
+                .values()
+                .map(|p| (p.memory(), p.name().to_string_lossy().into_owned()))
+                .collect();
+            procs.sort_by_key(|b| std::cmp::Reverse(b.0));
+            procs.truncate(3);
+            procs.into_iter().map(|(mem, name)| {
+                let mb = mem / (1024 * 1024);
+                format!("{name} {mb}MB")
+            }).collect()
         };
+        let body = format!("Memory: {used_mb}MB / {total_mb}MB ({usage:.1}%)  top: {}", top3.join(", "));
         Some(Alert { summary: format!("{} Memory usage high", self.cfg.severity_label(usage, false)), body })
     }
 
