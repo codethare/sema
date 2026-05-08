@@ -1,0 +1,13 @@
+[package]
+name = "archlinu"
+version = "0.1.0"
+edition = "2024"
+description = "Arch Linux 系统资源监控工具 - 监控 CPU、内存、Swap、电池和时间，通过桌面通知提示"
+authors = ["codethare"]
+license = "MIT"
+repository = "https://github.com/codethare/archlinu"
+
+[dependencies]
+sysinfo = "0.33"
+notify-rust = "4.11"
+chrono = "0.4"
