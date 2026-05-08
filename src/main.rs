@@ -44,10 +44,10 @@ impl ArchMonitor {
         if let Err(e) = Notification::new()
             .summary(summary)
             .body(body)
-            .appname("archlinu")
+            .appname("sema")
             .show()
         {
-            eprintln!("[archlinu] 通知发送失败: {e}");
+            eprintln!("[sema] 通知发送失败: {e}");
         }
         self.last_notified.insert(key.to_string(), Instant::now());
     }
@@ -151,7 +151,7 @@ impl ArchMonitor {
 
     fn run(&mut self) {
         println!(
-            "🔍 archlinu 已启动，每 {}s 检测一次\n\
+            "🔍 sema 已启动，每 {}s 检测一次\n\
              CPU 阈值: {CPU_THRESHOLD}% | 内存阈值: {MEM_THRESHOLD}% | \
              Swap 阈值: {SWAP_THRESHOLD}% | 电池阈值: {BATT_THRESHOLD}%\n\
              整点/半点时间提醒 · 通知冷却 {COOLDOWN_SECS}s\n",

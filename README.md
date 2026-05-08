@@ -1,4 +1,4 @@
-# archlinu
+# sema
 
 Arch Linux 系统资源监控守护工具。实时监控 CPU、内存、Swap、电池状态和时间，超出阈值时通过桌面通知（`notify-send`）发出提醒，每条通知有 1 分钟冷却防刷。
 
@@ -25,19 +25,19 @@ Arch Linux 系统资源监控守护工具。实时监控 CPU、内存、Swap、�
 ### 从源码编译
 
 ```bash
-git clone https://github.com/codethare/archlinu.git
-cd archlinu
+git clone https://github.com/codethare/sema.git
+cd sema
 cargo build --release
-sudo cp target/release/archlinu /usr/local/bin/
+sudo cp target/release/sema /usr/local/bin/
 ```
 
 ### 从 Release 下载
 
-从 [Releases](https://github.com/codethare/archlinu/releases) 下载预编译的二进制文件：
+从 [Releases](https://github.com/codethare/sema/releases) 下载预编译的二进制文件：
 
 ```bash
-chmod +x archlinu
-sudo mv archlinu /usr/local/bin/
+chmod +x sema
+sudo mv sema /usr/local/bin/
 ```
 
 ## 使用
@@ -45,26 +45,26 @@ sudo mv archlinu /usr/local/bin/
 直接运行即可：
 
 ```bash
-archlinu
+sema
 ```
 
 建议添加到自动启动（如 i3/sway 的 `~/.config/sway/config` 或 KDE/GNOME 的自动启动设置）：
 
 ```bash
-exec --no-startup-id archlinu
+exec --no-startup-id sema
 ```
 
 ### Systemd 用户服务（可选）
 
-创建 `~/.config/systemd/user/archlinu.service`：
+创建 `~/.config/systemd/user/sema.service`：
 
 ```ini
 [Unit]
-Description=archlinu System Monitor
+Description=sema System Monitor
 After=graphical-session.target
 
 [Service]
-ExecStart=/usr/local/bin/archlinu
+ExecStart=/usr/local/bin/sema
 Restart=on-failure
 RestartSec=5
 
@@ -75,7 +75,7 @@ WantedBy=default.target
 启用：
 
 ```bash
-systemctl --user enable --now archlinu
+systemctl --user enable --now sema
 ```
 
 ## 使用的 crate
