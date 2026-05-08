@@ -2,23 +2,29 @@
 
 > **σῆμα** (sêma) — Ancient Greek for "signal, alarm".
 
-A lightweight system resource monitoring daemon for Linux. It monitors CPU, memory, swap, battery, and time, and sends desktop notifications via `notify-send` when configured thresholds are exceeded.
+A lightweight system resource monitoring daemon for Linux. It monitors CPU, memory, swap, battery, temperature, and network, and sends desktop notifications via `notify-send` when configured thresholds are exceeded.
 
 [**中文文档 (Chinese)**](README.zh.md)
 
 ## Features
 
-| Metric  | Default Threshold | Description |
-|---------|-------------------|-------------|
-| CPU     | > 50%             | Global CPU usage exceeds threshold |
-| Memory  | > 50%             | Physical memory usage exceeds threshold |
-| Swap    | > 80%             | Swap usage exceeds threshold |
-| Battery | < 84%             | Battery charge drops below threshold |
-| Time    | :00 / :30         | Chime on the hour and half-hour |
+| Metric      | Default Threshold | Description |
+|-------------|-------------------|-------------|
+| CPU         | > 50%             | Global CPU usage. Shows top process. |
+| Memory      | > 50%             | Physical memory usage. Shows top process. |
+| Swap        | > 80%             | Swap usage. |
+| Battery     | < 84%             | Battery charge level. |
+| Temperature | > 80°C            | CPU/GPU/NVMe component temperature. Shows hottest sensor. |
+| Network     | > 100 MB/s        | Total network throughput (RX + TX). |
+| Time        | :00 / :30         | Chime on the hour and half-hour. |
 
 - Per-metric notification cooldown — no spam
+- Notification shows **duration** the condition has persisted (e.g. "持续 5m30s")
+- Notification includes the **top resource-consuming process** (CPU/memory alerts)
 - Fully configurable via TOML file
-- Logs all alerts to disk
+- Logs all alerts to disk with **auto-rotation** (5 MB)
+- **SIGHUP hot reload** — reload config without restarting
+- **sd_notify** support — integrates with systemd watchdog
 - Respects XDG directory standards
 
 ## Installation
@@ -69,6 +75,12 @@ Show help:
 sema --help
 ```
 
+Reload config without restart (send SIGHUP):
+
+```bash
+killall -HUP sema
+```
+
 ### Autostart
 
 For i3/sway, add to `~/.config/sway/config`:
@@ -79,14 +91,16 @@ exec --no-startup-id sema
 
 ### Systemd user service
 
-Create `~/.config/systemd/user/sema.service`:
+sema supports the `sd_notify` protocol — `systemctl status` shows live status:
 
 ```ini
+# ~/.config/systemd/user/sema.service
 [Unit]
 Description=sema System Monitor
 After=graphical-session.target
 
 [Service]
+Type=notify
 ExecStart=/usr/local/bin/sema
 Restart=on-failure
 RestartSec=5
@@ -100,6 +114,8 @@ Enable it:
 ```bash
 systemctl --user enable --now sema
 ```
+
+With `Type=notify`, systemd waits for sema to signal readiness before marking the service as active, and sema sends periodic `WATCHDOG=1` updates.
 
 ## Configuration
 
@@ -136,6 +152,16 @@ cooldown_secs = 60
 [time]
 enabled = true
 cooldown_secs = 60
+
+[temperature]
+enabled = true
+threshold = 80.0
+cooldown_secs = 60
+
+[network]
+enabled = true
+threshold = 100.0
+cooldown_secs = 60
 ```
 
 ### Parameters
@@ -147,8 +173,9 @@ cooldown_secs = 60
 | `[metric].threshold` | float | see table | Alert threshold (%) |
 | `[metric].cooldown_secs` | integer | 60 | Per-metric notification cooldown (seconds) |
 
-> `[metric]` can be `cpu`, `memory`, `swap`, or `battery`.
+> `[metric]` can be `cpu`, `memory`, `swap`, `battery`, or `temperature`.
 > `[time]` has no `threshold` field.
+> `[network]` threshold is in **MB/s** (total throughput), not percentage.
 
 ### Disabling a metric
 
@@ -168,8 +195,10 @@ All triggered alerts are recorded to:
 Format:
 
 ```
-[2026-05-08 12:34:56] ⚠️ CPU 负载过高 | 当前 CPU 使用率: 95.0%（阈值: 50.0%）
+[2026-05-08 12:34:56] ⚠️ CPU overloaded | CPU usage: 95.0% (top: firefox 42.3%, threshold: 50.0%) (持续 5m30s)
 ```
+
+The log **auto-rotates** at 5 MB — the old file is renamed to `sema.log.1` and a fresh log starts.
 
 Tail the log:
 
@@ -177,15 +206,26 @@ Tail the log:
 tail -f ~/.local/share/sema/sema.log
 ```
 
+## SIGHUP hot reload
+
+When sema receives `SIGHUP`, it reloads the config file and recreates all checkers without restarting the process:
+
+```bash
+killall -HUP sema
+```
+
+This is useful for tweaking thresholds or enabling/disabling metrics on the fly.
+
 ## Crates used
 
 | Crate | Purpose | Version |
 |-------|---------|---------|
-| [sysinfo](https://crates.io/crates/sysinfo) | CPU / memory / swap info | 0.33 |
+| [sysinfo](https://crates.io/crates/sysinfo) | CPU / memory / swap / processes / temperature | 0.33 |
 | [notify-rust](https://crates.io/crates/notify-rust) | Desktop notifications (notify-send) | 4.11 |
 | [chrono](https://crates.io/crates/chrono) | Time handling | 0.4 |
 | [serde](https://crates.io/crates/serde) | Config serialization | 1 |
 | [toml](https://crates.io/crates/toml) | TOML config parsing | 0.8 |
+| [signal-hook](https://crates.io/crates/signal-hook) | SIGHUP handler | 0.3 |
 
 Battery info is read directly from the Linux kernel sysfs (`/sys/class/power_supply/BAT*/capacity`) — zero extra dependencies.
 
