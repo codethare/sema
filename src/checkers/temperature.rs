@@ -14,7 +14,11 @@ impl Temperature {
 
     fn is_cpu_sensor(label: &str) -> bool {
         let l = label.to_lowercase();
-        // Include known CPU sensor labels, exclude GPU/NVMe/etc
+        // On non-Linux, include all components (no sysfs label filtering)
+        if cfg!(not(target_os = "linux")) {
+            return true;
+        }
+        // Exclude GPU/NVMe/disk sensors
         if l.contains("gpu") || l.contains("nvidia") || l.contains("amdgpu")
             || l.contains("nvme") || l.contains("ssd") || l.contains("hdd")
         {
@@ -24,7 +28,6 @@ impl Temperature {
         l.contains("cpu") || l.contains("core") || l.contains("package")
             || l.contains("tctl") || l.contains("tdie") || l.contains("ccd")
             || l.contains("soc") || l.contains("edge") || l.contains("junction")
-            || !cfg!(target_os = "linux") // on non-Linux, don't filter
     }
 }
 

@@ -3,10 +3,12 @@ mod config;
 mod sink;
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
 use std::time::Duration;
 
+use clap::Parser;
 use notify_rust::Notification;
 use sysinfo::{
     CpuRefreshKind, MemoryRefreshKind, ProcessRefreshKind, RefreshKind, System,
@@ -15,6 +17,27 @@ use sysinfo::{
 use checkers::Checker;
 use config::Config;
 use sink::Sink;
+
+#[derive(Parser)]
+#[command(name = "sema", version, about = "Linux system resource monitor",
+    after_help = "Config: ~/.config/sema/config.toml\nLog:    ~/.local/share/sema/sema.log")]
+struct Cli {
+    /// Print system status and exit (no notifications)
+    #[arg(short = 'n', long = "dry-run")]
+    dry_run: bool,
+
+    /// Path to config file
+    #[arg(short = 'c', long = "config")]
+    config: Option<PathBuf>,
+
+    /// Generate default config file and exit
+    #[arg(long = "init")]
+    init: bool,
+
+    /// Overwrite existing config with --init
+    #[arg(long = "force")]
+    force: bool,
+}
 
 static HUP_RECEIVED: AtomicBool = AtomicBool::new(false);
 static TERM_RECEIVED: AtomicBool = AtomicBool::new(false);
@@ -190,32 +213,14 @@ impl Monitor {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    let cli = Cli::parse();
 
-    if args.iter().any(|a| a == "--help" || a == "-h") {
-        println!("sema {} — Linux system resource monitor", env!("CARGO_PKG_VERSION"));
-        println!();
-        println!("Usage: sema [OPTIONS]");
-        println!();
-        println!("Options:");
-        println!("  -n, --dry-run    Print system status and exit (no notifications)");
-        println!("  -c, --config     Path to config file (default: ~/.config/sema/config.toml)");
-        println!("       --init      Generate default config file and exit");
-        println!("  -V, --version    Print version and exit");
-        println!("  -h, --help       Show this help message");
-        println!();
-        println!("Config: ~/.config/sema/config.toml");
-        println!("Log:    ~/.local/share/sema/sema.log");
-        return;
-    }
-
-    if args.iter().any(|a| a == "--version" || a == "-V") {
-        println!("sema {}", env!("CARGO_PKG_VERSION"));
-        return;
-    }
-
-    if args.iter().any(|a| a == "--init") {
-        let path = config::config_path();
+    if cli.init {
+        let path = cli.config.clone().unwrap_or_else(config::config_path);
+        if path.exists() && !cli.force {
+            eprintln!("Error: config already exists at {}\nUse --force to overwrite", path.display());
+            std::process::exit(1);
+        }
         match config::generate_default_config(&path) {
             Ok(()) => println!("Default config written to {}\nEdit it and run sema", path.display()),
             Err(e) => eprintln!("Error: cannot write config to {}: {e}", path.display()),
@@ -233,23 +238,9 @@ fn main() {
         eprintln!("[sema] warning: cannot register SIGINT handler: {e}");
     }
 
-    let dry_run = args.iter().any(|a| a == "--dry-run" || a == "-n");
+    let dry_run = cli.dry_run;
 
-    let config_path = {
-        let mut i = 0;
-        let mut path = None;
-        while i < args.len() {
-            if args[i] == "--config" || args[i] == "-c" {
-                if i + 1 < args.len() {
-                    path = Some(std::path::PathBuf::from(&args[i + 1]));
-                }
-                i += 2;
-            } else {
-                i += 1;
-            }
-        }
-        path
-    };
+    let config_path = cli.config;
 
     let cfg = match &config_path {
         Some(p) => Config::load_from(Some(p)),

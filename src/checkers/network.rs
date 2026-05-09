@@ -70,11 +70,28 @@ impl Checker for Network {
 
     fn report(&self, _sys: &System) -> String {
         let networks = Networks::new_with_refreshed_list();
-        let count = networks.iter().count();
-        if count == 0 {
+        if networks.iter().count() == 0 {
             return "  Network N/A".into();
         }
-        let names: Vec<&str> = networks.keys().map(|n| n.as_str()).collect();
-        format!("  Network {} interfaces: {}", count, names.join(", "))
+        let mut total_rx = 0u64;
+        let mut total_tx = 0u64;
+        let last_key = networks.keys().last().map(|k| k.to_string()).unwrap_or_default();
+        for (_name, data) in &networks {
+            total_rx += data.total_received();
+            total_tx += data.total_transmitted();
+        }
+
+        fn fmt_bytes(b: f64) -> String {
+            if b > 1024.0 * 1024.0 * 1024.0 {
+                format!("{:.1}GiB", b / (1024.0 * 1024.0 * 1024.0))
+            } else if b > 1024.0 * 1024.0 {
+                format!("{:.1}MiB", b / (1024.0 * 1024.0))
+            } else if b > 1024.0 {
+                format!("{:.1}KiB", b / 1024.0)
+            } else {
+                format!("{b}B")
+            }
+        }
+        format!("  Network ↓{} ↑{}  [{}]", fmt_bytes(total_rx as f64), fmt_bytes(total_tx as f64), last_key)
     }
 }

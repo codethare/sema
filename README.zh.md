@@ -219,12 +219,12 @@ killall -HUP sema
 
 | crate | 用途 | 版本 |
 |-------|------|------|
-| [sysinfo](https://crates.io/crates/sysinfo) | CPU / 内存 / Swap / 进程 / 温度 | 0.33 |
-| [notify-rust](https://crates.io/crates/notify-rust) | 桌面通知（通过 notify-send） | 4.11 |
+| [sysinfo](https://crates.io/crates/sysinfo) | CPU / 内存 / Swap / 进程 / 温度 | 0.39 |
+| [notify-rust](https://crates.io/crates/notify-rust) | 桌面通知（通过 notify-send） | 4.17 |
 | [chrono](https://crates.io/crates/chrono) | 时间处理 | 0.4 |
 | [serde](https://crates.io/crates/serde) | 配置序列化 | 1 |
-| [toml](https://crates.io/crates/toml) | TOML 配置解析 | 0.8 |
-| [signal-hook](https://crates.io/crates/signal-hook) | SIGHUP 信号处理 | 0.3 |
+| [toml](https://crates.io/crates/toml) | TOML 配置解析 | 1.1 |
+| [signal-hook](https://crates.io/crates/signal-hook) | SIGHUP 信号处理 | 0.4 |
 
 电池信息直接读取 Linux 内核 sysfs (`/sys/class/power_supply/BAT*/capacity`)，零额外依赖。
 
