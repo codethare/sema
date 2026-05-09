@@ -31,7 +31,8 @@ fn version_flag_works() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("sema"));
-    assert!(stdout.contains("0.0.3"));
+    assert!(stdout.contains(env!("CARGO_PKG_VERSION")),
+        "version string not found, expected {}", env!("CARGO_PKG_VERSION"));
 }
 
 #[test]
