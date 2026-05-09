@@ -29,8 +29,8 @@ impl Checker for Memory {
         if usage <= self.cfg.threshold {
             return None;
         }
-        let used_mb = used / (1024 * 1024);
         let total_mb = total / (1024 * 1024);
+        let avail_mb = sys.available_memory() / (1024 * 1024);
         let top3: Vec<String> = {
             let mut procs: Vec<(u64, String)> = sys.processes()
                 .values()
@@ -43,7 +43,7 @@ impl Checker for Memory {
                 format!("{name} {mb}MB")
             }).collect()
         };
-        let body = format!("Memory: {used_mb}MB / {total_mb}MB ({usage:.1}%)  top: {}", top3.join(", "));
+        let body = format!("Memory: {usage:.1}%\nAvailable: {avail_mb}MB / {total_mb}MB\nTop: {}", top3.join(" | "));
         Some(Alert { summary: format!("{} Memory usage high", self.cfg.severity_label(usage, false)), body })
     }
 

@@ -36,7 +36,7 @@ impl Checker for Cpu {
             procs.truncate(3);
             procs.into_iter().map(|(cpu, name)| format!("{name} {cpu:.1}%")).collect()
         };
-        let body = format!("CPU usage: {usage:.1}%  top: {}", top3.join(", "));
+        let body = format!("CPU: {usage:.1}%\nIdle: {:.1}%\nTop: {}", (100.0 - usage), top3.join(" | "));
         Some(Alert { summary: format!("{} CPU overloaded", self.cfg.severity_label(usage, false)), body })
     }
 
