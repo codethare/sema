@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use sysinfo::{Networks, System};
 
 use super::{Alert, Checker};
@@ -7,11 +9,12 @@ pub struct Network {
     cfg: MetricConfig,
     prev_rx: u64,
     prev_tx: u64,
+    prev_time: Option<Instant>,
 }
 
 impl Network {
     pub fn new(cfg: MetricConfig) -> Self {
-        Self { cfg, prev_rx: 0, prev_tx: 0 }
+        Self { cfg, prev_rx: 0, prev_tx: 0, prev_time: None }
     }
 }
 
@@ -33,20 +36,26 @@ impl Checker for Network {
             total_tx += data.total_transmitted();
         }
 
-        if self.prev_rx == 0 {
-            self.prev_rx = total_rx;
-            self.prev_tx = total_tx;
-            return None;
-        }
+        let now = Instant::now();
+        let elapsed = match self.prev_time {
+            Some(t) => now.duration_since(t),
+            None => {
+                self.prev_rx = total_rx;
+                self.prev_tx = total_tx;
+                self.prev_time = Some(now);
+                return None;
+            }
+        };
 
         let rx_delta = total_rx.saturating_sub(self.prev_rx);
         let tx_delta = total_tx.saturating_sub(self.prev_tx);
         self.prev_rx = total_rx;
         self.prev_tx = total_tx;
+        self.prev_time = Some(now);
 
-        let interval = self.cfg.cooldown_secs.max(1) as f64;
-        let rx_mbps = rx_delta as f64 / interval / (1024.0 * 1024.0);
-        let tx_mbps = tx_delta as f64 / interval / (1024.0 * 1024.0);
+        let secs = elapsed.as_secs_f64().max(0.001);
+        let rx_mbps = rx_delta as f64 / secs / (1024.0 * 1024.0);
+        let tx_mbps = tx_delta as f64 / secs / (1024.0 * 1024.0);
         let total_mbps = rx_mbps + tx_mbps;
 
         if total_mbps < self.cfg.threshold {

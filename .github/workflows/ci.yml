@@ -20,3 +20,4 @@ jobs:
           components: clippy
       - run: cargo build --all-targets
       - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test

@@ -253,12 +253,6 @@ struct ConfigRaw {
 }
 
 pub fn config_path() -> PathBuf {
-    if let Ok(dir) = std::env::var("XDG_CONFIG_HOME") {
-        let mut p = PathBuf::from(dir);
-        p.push("sema");
-        p.push("config.toml");
-        return p;
-    }
     let mut p = dirs_next_config_dir().unwrap_or_else(|| {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
         PathBuf::from(home).join(".config")

@@ -41,8 +41,9 @@ fn write_log(summary: &str, body: &str) {
         .create(true)
         .append(true)
         .open(&path)
+        && let Err(e) = writeln!(f, "[{ts}] {summary} | {body}")
     {
-        writeln!(f, "[{ts}] {summary} | {body}").ok();
+        eprintln!("[sema] warning: failed to write log: {e}");
     }
 }
 
@@ -76,9 +77,9 @@ impl Sink {
             Some(start) => {
                 let secs = start.elapsed().as_secs();
                 if secs < 60 {
-                    format!("持续 {}s", secs)
+                    format!("for {}s", secs)
                 } else {
-                    format!("持续 {}m{}s", secs / 60, secs % 60)
+                    format!("for {}m{}s", secs / 60, secs % 60)
                 }
             }
             None => String::new(),
