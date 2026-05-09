@@ -27,22 +27,20 @@ impl Checker for Cpu {
         if usage <= self.cfg.threshold {
             return None;
         }
-        let top3: Vec<String> = {
-            let mut procs: Vec<(f32, String)> = sys.processes()
-                .values()
-                .map(|p| (p.cpu_usage(), p.name().to_string_lossy().into_owned()))
-                .collect();
-            procs.sort_by(|a, b| b.0.total_cmp(&a.0));
-            procs.truncate(3);
-            procs.into_iter().map(|(cpu, name)| format!("{name} {cpu:.1}%")).collect()
-        };
-        let body = format!("CPU: {usage:.1}%\nIdle: {:.1}%\nTop: {}", (100.0 - usage), top3.join(" | "));
-        Some(Alert { summary: format!("{} CPU overloaded", self.cfg.severity_label(usage, false)), body })
+        let idle = 100.0 - usage;
+        let load = System::load_average();
+        Some(Alert {
+            summary: format!("{} CPU overloaded", self.cfg.severity_label(usage, false)),
+            body: format!("CPU: {usage:.1}%\nIdle: {idle:.1}%\nLoad: {:.2} {:.2} {:.2}",
+                load.one, load.five, load.fifteen),
+        })
     }
 
     fn report(&self, sys: &System) -> String {
         let usage = sys.global_cpu_usage() as f64;
+        let load = System::load_average();
         let flag = if usage > self.cfg.threshold { "⚠️" } else { "✓" };
-        format!("  CPU     {:>6.1}%  threshold: {:>5.1}%  {flag}", usage, self.cfg.threshold)
+        format!("  CPU     {:>6.1}%  load: {:.2} {:.2} {:.2}  {flag}",
+            usage, load.one, load.five, load.fifteen)
     }
 }

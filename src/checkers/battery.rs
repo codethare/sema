@@ -14,13 +14,13 @@ impl Battery {
         Self { cfg }
     }
 
-    fn read_capacity() -> Option<u8> {
+    fn read_capacity() -> Option<u16> {
         #[cfg(target_os = "linux")]
         {
             (0..4).find_map(|i| {
                 let path = format!("/sys/class/power_supply/BAT{i}/capacity");
                 let content = fs::read_to_string(&path).ok()?;
-                content.trim().parse::<u8>().ok()
+                content.trim().parse::<u16>().ok()
             })
         }
         #[cfg(not(target_os = "linux"))]

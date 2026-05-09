@@ -11,7 +11,7 @@ use std::time::Duration;
 use clap::Parser;
 use notify_rust::Notification;
 use sysinfo::{
-    CpuRefreshKind, MemoryRefreshKind, ProcessRefreshKind, RefreshKind, System,
+    CpuRefreshKind, MemoryRefreshKind, RefreshKind, System,
 };
 
 use checkers::Checker;
@@ -37,6 +37,10 @@ struct Cli {
     /// Overwrite existing config with --init
     #[arg(long = "force")]
     force: bool,
+
+    /// Send a test notification to verify notify-send
+    #[arg(long = "test")]
+    test: bool,
 }
 
 static HUP_RECEIVED: AtomicBool = AtomicBool::new(false);
@@ -75,8 +79,7 @@ impl Monitor {
         let sys = System::new_with_specifics(
             RefreshKind::nothing()
                 .with_cpu(CpuRefreshKind::everything())
-                .with_memory(MemoryRefreshKind::everything())
-                .with_processes(ProcessRefreshKind::everything()),
+                .with_memory(MemoryRefreshKind::everything()),
         );
         let check_interval = Duration::from_secs(cfg.check_interval_secs);
         let log_enabled = cfg.log.enabled;
@@ -131,9 +134,6 @@ impl Monitor {
             } else {
                 sd_notify("WATCHDOG=1\nSTATUS=Monitoring...\nMAINPID=1");
             }
-
-            // Refresh process list so CPU/memory TOP 3 are current
-            self.sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
 
             // Phase 1: run all checks, collect alerts
             struct PendingAlert<'a> {
@@ -215,6 +215,14 @@ impl Monitor {
 fn main() {
     let cli = Cli::parse();
 
+    // Enforce single instance via PID file
+    if !cli.init && !cli.test
+        && let Err(e) = single_instance::SingleInstance::new("sema")
+    {
+        eprintln!("Error: another sema instance is already running ({e})");
+        std::process::exit(1);
+    }
+
     if cli.init {
         let path = cli.config.clone().unwrap_or_else(config::config_path);
         if path.exists() && !cli.force {
@@ -224,6 +232,22 @@ fn main() {
         match config::generate_default_config(&path) {
             Ok(()) => println!("Default config written to {}\nEdit it and run sema", path.display()),
             Err(e) => eprintln!("Error: cannot write config to {}: {e}", path.display()),
+        }
+        return;
+    }
+
+    if cli.test {
+        let ok = Notification::new()
+            .summary("🔍 sema test notification")
+            .body("If you can read this, notify-send is working correctly.")
+            .appname("sema")
+            .show()
+            .is_ok();
+        if ok {
+            println!("Test notification sent successfully.");
+        } else {
+            eprintln!("Error: failed to send test notification. Is notify-send installed?");
+            std::process::exit(1);
         }
         return;
     }

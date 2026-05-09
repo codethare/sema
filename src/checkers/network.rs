@@ -73,25 +73,23 @@ impl Checker for Network {
         if networks.iter().count() == 0 {
             return "  Network N/A".into();
         }
-        let mut total_rx = 0u64;
-        let mut total_tx = 0u64;
-        let last_key = networks.keys().last().map(|k| k.to_string()).unwrap_or_default();
-        for (_name, data) in &networks {
-            total_rx += data.total_received();
-            total_tx += data.total_transmitted();
-        }
-
-        fn fmt_bytes(b: f64) -> String {
-            if b > 1024.0 * 1024.0 * 1024.0 {
-                format!("{:.1}GiB", b / (1024.0 * 1024.0 * 1024.0))
-            } else if b > 1024.0 * 1024.0 {
-                format!("{:.1}MiB", b / (1024.0 * 1024.0))
-            } else if b > 1024.0 {
-                format!("{:.1}KiB", b / 1024.0)
-            } else {
-                format!("{b}B")
+        let mut parts: Vec<String> = Vec::new();
+        for (name, data) in &networks {
+            let rx = data.total_received();
+            let tx = data.total_transmitted();
+            fn fmt_bytes(b: f64) -> String {
+                if b > 1024.0 * 1024.0 * 1024.0 {
+                    format!("{:.1}GiB", b / (1024.0 * 1024.0 * 1024.0))
+                } else if b > 1024.0 * 1024.0 {
+                    format!("{:.1}MiB", b / (1024.0 * 1024.0))
+                } else if b > 1024.0 {
+                    format!("{:.1}KiB", b / 1024.0)
+                } else {
+                    format!("{b}B")
+                }
             }
+            parts.push(format!("{name} ↓{} ↑{}", fmt_bytes(rx as f64), fmt_bytes(tx as f64)));
         }
-        format!("  Network ↓{} ↑{}  [{}]", fmt_bytes(total_rx as f64), fmt_bytes(total_tx as f64), last_key)
+        format!("  Network {}", parts.join("  "))
     }
 }

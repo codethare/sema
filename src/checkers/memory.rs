@@ -24,6 +24,9 @@ impl Checker for Memory {
 
     fn check(&mut self, sys: &System) -> Option<Alert> {
         let total = sys.total_memory();
+        if total == 0 {
+            return None;
+        }
         let used = sys.used_memory();
         let usage = used as f64 / total as f64 * 100.0;
         if usage <= self.cfg.threshold {
@@ -31,19 +34,7 @@ impl Checker for Memory {
         }
         let total_mb = total / (1024 * 1024);
         let avail_mb = sys.available_memory() / (1024 * 1024);
-        let top3: Vec<String> = {
-            let mut procs: Vec<(u64, String)> = sys.processes()
-                .values()
-                .map(|p| (p.memory(), p.name().to_string_lossy().into_owned()))
-                .collect();
-            procs.sort_by_key(|b| std::cmp::Reverse(b.0));
-            procs.truncate(3);
-            procs.into_iter().map(|(mem, name)| {
-                let mb = mem / (1024 * 1024);
-                format!("{name} {mb}MB")
-            }).collect()
-        };
-        let body = format!("Memory: {usage:.1}%\nAvailable: {avail_mb}MB / {total_mb}MB\nTop: {}", top3.join(" | "));
+        let body = format!("Memory: {usage:.1}%\nAvailable: {avail_mb}MB / {total_mb}MB");
         Some(Alert { summary: format!("{} Memory usage high", self.cfg.severity_label(usage, false)), body })
     }
 

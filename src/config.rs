@@ -100,7 +100,6 @@ const fn default_check_interval() -> u64 {
 macro_rules! metric_defaults {
     ($($name:ident: $threshold:expr),* $(,)?) => {
         $(
-            #[allow(dead_code)]
             pub fn $name() -> MetricConfig {
                 MetricConfig {
                     enabled: true,
