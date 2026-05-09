@@ -98,6 +98,12 @@ Generate a default config file (**first run**):
 sema --init
 ```
 
+Overwrite existing config (use with caution):
+
+```bash
+sema --init --force
+```
+
 Reload config without restart (send SIGHUP):
 
 ```bash
@@ -225,7 +231,7 @@ All triggered alerts are recorded to the log file (can be disabled via `[log].en
 Format:
 
 ```
-[2026-05-08 12:34:56] ⚠️ CPU overloaded | CPU usage: 95.0% (top: firefox 42.3%, threshold: 50.0%) (持续 5m30s)
+[2026-05-08 12:34:56] ⚠️ CPU overloaded | CPU usage: 95.0% (top: firefox 42.3%, threshold: 50.0%) (for 5m30s)
 ```
 
 The log **auto-rotates** at 5 MB — the old file is renamed to `sema.log.1` and a fresh log starts.

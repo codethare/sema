@@ -73,6 +73,18 @@ sema --dry-run    # 或 sema -n
 sema --help
 ```
 
+生成默认配置文件：
+
+```bash
+sema --init
+```
+
+强制覆盖已有配置：
+
+```bash
+sema --init --force
+```
+
 不重启重新加载配置（发送 SIGHUP）：
 
 ```bash
@@ -194,7 +206,7 @@ enabled = false
 格式：
 
 ```
-[2026-05-08 12:34:56] ⚠️ CPU overloaded | CPU usage: 95.0% (top: firefox 42.3%, threshold: 50.0%) (持续 5m30s)
+[2026-05-08 12:34:56] ⚠️ CPU overloaded | CPU usage: 95.0% (top: firefox 42.3%, threshold: 50.0%) (for 5m30s)
 ```
 
 日志文件**超过 5MB 自动轮转**，旧文件重命名为 `sema.log.1`。
