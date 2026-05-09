@@ -31,7 +31,7 @@ fn version_flag_works() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("sema"));
-    assert!(stdout.contains("0.0.2"));
+    assert!(stdout.contains("0.0.3"));
 }
 
 #[test]

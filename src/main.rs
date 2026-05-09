@@ -109,6 +109,9 @@ impl Monitor {
                 sd_notify("WATCHDOG=1\nSTATUS=Monitoring...\nMAINPID=1");
             }
 
+            // Refresh process list so CPU/memory TOP 3 are current
+            self.sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+
             // Phase 1: run all checks, collect alerts
             struct PendingAlert<'a> {
                 key: &'a str,

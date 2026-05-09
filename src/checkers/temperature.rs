@@ -63,15 +63,14 @@ impl Checker for Temperature {
         let temps: Vec<(String, f32)> = components
             .iter()
             .filter(|c| Self::is_cpu_sensor(c.label()))
-            .filter_map(|c| Some((c.label().to_string(), c.temperature()?)))
+            .filter_map(|c| {
+                let t = c.temperature()?;
+                Some((c.label().to_string(), t))
+            })
             .collect();
-        if temps.is_empty() {
+        let Some((_, max_temp)) = temps.iter().max_by(|(_, a), (_, b)| a.total_cmp(b)) else {
             return "  Temp    N/A".into();
-        }
-        let (_, max_temp) = temps
-            .iter()
-            .max_by(|(_, a), (_, b)| a.total_cmp(b))
-            .unwrap();
+        };
         let parts: String = temps.iter()
             .map(|(l, t)| format!("{l}: {t:.0}°C"))
             .collect::<Vec<_>>()
