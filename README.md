@@ -104,6 +104,14 @@ Overwrite existing config (use with caution):
 sema --init --force
 ```
 
+Generate shell completion scripts:
+
+```bash
+sema --completions bash  > ~/.local/share/bash-completion/completions/sema
+sema --completions zsh   > /usr/local/share/zsh/site-functions/_sema
+sema --completions fish  > ~/.config/fish/completions/sema.fish
+```
+
 Reload config without restart (send SIGHUP):
 
 ```bash

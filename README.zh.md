@@ -85,6 +85,14 @@ sema --init
 sema --init --force
 ```
 
+生成 Shell 自动补全脚本：
+
+```bash
+sema --completions bash  > ~/.local/share/bash-completion/completions/sema
+sema --completions zsh   > /usr/local/share/zsh/site-functions/_sema
+sema --completions fish  > ~/.config/fish/completions/sema.fish
+```
+
 不重启重新加载配置（发送 SIGHUP）：
 
 ```bash

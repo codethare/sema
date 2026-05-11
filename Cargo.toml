@@ -1,6 +1,6 @@
 [package]
 name = "sema"
-version = "0.0.6"
+version = "0.0.7"
 edition = "2024"
 description = "Linux system resource monitor with desktop notifications. Monitors CPU, memory, swap, battery, temperature, network, and time."
 authors = ["codethare"]
