@@ -5,11 +5,12 @@ use crate::config::MetricConfig;
 
 pub struct Temperature {
     cfg: MetricConfig,
+    components: Components,
 }
 
 impl Temperature {
     pub fn new(cfg: MetricConfig) -> Self {
-        Self { cfg }
+        Self { cfg, components: Components::new_with_refreshed_list() }
     }
 
     fn is_cpu_sensor(label: &str) -> bool {
@@ -41,9 +42,9 @@ impl Checker for Temperature {
     }
 
     fn check(&mut self, _sys: &System) -> Option<Alert> {
-        let components = Components::new_with_refreshed_list();
+        self.components.refresh(false);
         let mut hottest: Option<(String, f32)> = None;
-        for comp in &components {
+        for comp in &self.components {
             if !Self::is_cpu_sensor(comp.label()) {
                 continue;
             }
@@ -62,7 +63,7 @@ impl Checker for Temperature {
     }
 
     fn report(&self, _sys: &System) -> String {
-        let components = Components::new_with_refreshed_list();
+        let components = &self.components;  // dry-run: use cached, trust data is recent
         let temps: Vec<(String, f32)> = components
             .iter()
             .filter(|c| Self::is_cpu_sensor(c.label()))

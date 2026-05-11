@@ -5,6 +5,7 @@ mod sink;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::LazyLock;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -55,15 +56,20 @@ fn handle_sigterm() {
 }
 
 fn sd_notify(state: &str) {
-    let socket_path = match std::env::var("NOTIFY_SOCKET") {
-        Ok(p) => p,
-        Err(_) => return,
+    use std::os::unix::net::UnixDatagram;
+    static SOCK: LazyLock<Option<UnixDatagram>> = LazyLock::new(|| {
+        UnixDatagram::unbound().ok()
+    });
+    static PATH: LazyLock<Option<String>> = LazyLock::new(|| std::env::var("NOTIFY_SOCKET").ok());
+    let sock = match SOCK.as_ref() {
+        Some(s) => s,
+        None => return,
     };
-    let sock = match std::os::unix::net::UnixDatagram::unbound() {
-        Ok(s) => s,
-        Err(_) => return,
+    let path = match PATH.as_ref() {
+        Some(p) => p,
+        None => return,
     };
-    let _ = sock.send_to(state.as_bytes(), &socket_path);
+    let _ = sock.send_to(state.as_bytes(), path);
 }
 
 struct Monitor {
@@ -135,6 +141,14 @@ impl Monitor {
                 sd_notify("WATCHDOG=1\nSTATUS=Monitoring...\nMAINPID=1");
             }
 
+            // Refresh system data before running checks
+            self.sys.refresh_cpu_usage();
+            self.sys.refresh_memory();
+
+            // Refresh system data before running checks
+            self.sys.refresh_cpu_usage();
+            self.sys.refresh_memory();
+
             // Phase 1: run all checks, collect alerts
             struct PendingAlert<'a> {
                 key: &'a str,
@@ -188,10 +202,12 @@ impl Monitor {
                 sink.notify(p.key, p.cooldown, &p.alert);
             } else if !pending.is_empty() {
                 let min_cooldown = pending.iter().map(|p| p.cooldown).min().unwrap_or(60);
-                let body = pending.iter()
-                    .map(|a| format!("{}: {}", a.alert.summary, a.alert.body))
-                    .collect::<Vec<_>>()
-                    .join(" | ");
+                let mut body = String::new();
+                for (i, p) in pending.iter().enumerate() {
+                    if i > 0 { body.push_str(" | "); }
+                    use std::fmt::Write;
+                    let _ = write!(body, "{}: {}", p.alert.summary, p.alert.body);
+                }
                 let composite = checkers::Alert {
                     summary: format!("{} alerts", pending.len()),
                     body,

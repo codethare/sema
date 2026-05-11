@@ -16,3 +16,9 @@ toml = "1.1"
 signal-hook = "0.4"
 clap = { version = "4", features = ["derive"] }
 single-instance = "0.3"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = 3

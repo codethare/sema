@@ -48,9 +48,9 @@ fn write_log(summary: &str, body: &str) {
 }
 
 pub struct Sink {
-    last_notified: HashMap<String, Instant>,
-    condition_started: HashMap<String, Instant>,
-    was_active: HashSet<String>,
+    last_notified: HashMap<&'static str, Instant>,
+    condition_started: HashMap<&'static str, Instant>,
+    was_active: HashSet<&'static str>,
     log_enabled: bool,
     pub dry_run: bool,
 }
@@ -66,13 +66,13 @@ impl Sink {
         }
     }
 
-    fn can_notify(&self, key: &str, cooldown_secs: u64) -> bool {
+    fn can_notify(&self, key: &'static str, cooldown_secs: u64) -> bool {
         self.last_notified
             .get(key)
             .is_none_or(|t| t.elapsed() >= Duration::from_secs(cooldown_secs))
     }
 
-    fn duration_text(&self, key: &str) -> String {
+    fn duration_text(&self, key: &'static str) -> String {
         match self.condition_started.get(key) {
             Some(start) => {
                 let secs = start.elapsed().as_secs();
@@ -86,12 +86,12 @@ impl Sink {
         }
     }
 
-    pub fn note_active(&mut self, key: &str, is_active: bool) -> bool {
+    pub fn note_active(&mut self, key: &'static str, is_active: bool) -> bool {
         let was = self.was_active.contains(key);
         if is_active {
-            self.was_active.insert(key.to_string());
+            self.was_active.insert(key);
             self.condition_started
-                .entry(key.to_string())
+                .entry(key)
                 .or_insert_with(Instant::now);
         } else {
             self.condition_started.remove(key);
@@ -100,7 +100,7 @@ impl Sink {
         was && !is_active
     }
 
-    pub fn notify(&mut self, key: &str, cooldown_secs: u64, alert: &Alert) {
+    pub fn notify(&mut self, key: &'static str, cooldown_secs: u64, alert: &Alert) {
         let duration = self.duration_text(key);
         let body = if duration.is_empty() {
             alert.body.clone()
@@ -127,7 +127,7 @@ impl Sink {
                 write_log(&alert.summary, &body);
             }
             if cooldown_secs > 0 {
-                self.last_notified.insert(key.to_string(), Instant::now());
+                self.last_notified.insert(key, Instant::now());
             }
         }
     }

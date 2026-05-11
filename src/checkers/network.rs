@@ -7,6 +7,7 @@ use crate::config::MetricConfig;
 
 pub struct Network {
     cfg: MetricConfig,
+    networks: Networks,
     prev_rx: u64,
     prev_tx: u64,
     prev_time: Option<Instant>,
@@ -14,7 +15,11 @@ pub struct Network {
 
 impl Network {
     pub fn new(cfg: MetricConfig) -> Self {
-        Self { cfg, prev_rx: 0, prev_tx: 0, prev_time: None }
+        Self {
+            cfg,
+            networks: Networks::new_with_refreshed_list(),
+            prev_rx: 0, prev_tx: 0, prev_time: None,
+        }
     }
 }
 
@@ -28,10 +33,10 @@ impl Checker for Network {
     }
 
     fn check(&mut self, _sys: &System) -> Option<Alert> {
-        let networks = Networks::new_with_refreshed_list();
+        self.networks.refresh(false);
         let mut total_rx = 0u64;
         let mut total_tx = 0u64;
-        for (_name, data) in &networks {
+        for (_name, data) in &self.networks {
             total_rx += data.total_received();
             total_tx += data.total_transmitted();
         }
@@ -69,12 +74,11 @@ impl Checker for Network {
     }
 
     fn report(&self, _sys: &System) -> String {
-        let networks = Networks::new_with_refreshed_list();
-        if networks.iter().count() == 0 {
+        if self.networks.iter().count() == 0 {
             return "  Network N/A".into();
         }
         let mut parts: Vec<String> = Vec::new();
-        for (name, data) in &networks {
+        for (name, data) in &self.networks {
             let rx = data.total_received();
             let tx = data.total_transmitted();
             fn fmt_bytes(b: f64) -> String {
