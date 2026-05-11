@@ -151,10 +151,6 @@ impl Monitor {
             self.sys.refresh_cpu_usage();
             self.sys.refresh_memory();
 
-            // Refresh system data before running checks
-            self.sys.refresh_cpu_usage();
-            self.sys.refresh_memory();
-
             // Phase 1: run all checks, collect alerts
             struct PendingAlert<'a> {
                 key: &'a str,
