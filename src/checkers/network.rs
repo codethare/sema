@@ -81,19 +81,20 @@ impl Checker for Network {
         for (name, data) in &self.networks {
             let rx = data.total_received();
             let tx = data.total_transmitted();
-            fn fmt_bytes(b: f64) -> String {
-                if b > 1024.0 * 1024.0 * 1024.0 {
-                    format!("{:.1}GiB", b / (1024.0 * 1024.0 * 1024.0))
-                } else if b > 1024.0 * 1024.0 {
-                    format!("{:.1}MiB", b / (1024.0 * 1024.0))
-                } else if b > 1024.0 {
-                    format!("{:.1}KiB", b / 1024.0)
-                } else {
-                    format!("{b}B")
-                }
-            }
             parts.push(format!("{name} ↓{} ↑{}", fmt_bytes(rx as f64), fmt_bytes(tx as f64)));
         }
         format!("  Network {}", parts.join("  "))
+    }
+}
+
+fn fmt_bytes(b: f64) -> String {
+    if b > 1024.0 * 1024.0 * 1024.0 {
+        format!("{:.1}GiB", b / (1024.0 * 1024.0 * 1024.0))
+    } else if b > 1024.0 * 1024.0 {
+        format!("{:.1}MiB", b / (1024.0 * 1024.0))
+    } else if b > 1024.0 {
+        format!("{:.1}KiB", b / 1024.0)
+    } else {
+        format!("{b}B")
     }
 }

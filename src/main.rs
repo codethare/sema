@@ -2,6 +2,7 @@ mod checkers;
 mod config;
 mod sink;
 
+use std::fmt::Write;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,7 +10,8 @@ use std::sync::LazyLock;
 use std::thread::sleep;
 use std::time::Duration;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::{generate, Shell};
 use notify_rust::Notification;
 use sysinfo::{
     CpuRefreshKind, MemoryRefreshKind, RefreshKind, System,
@@ -39,9 +41,13 @@ struct Cli {
     #[arg(long = "force")]
     force: bool,
 
-    /// Send a test notification to verify notify-send
+/// Send a test notification to verify notify-send
     #[arg(long = "test")]
     test: bool,
+
+    /// Generate shell completion script
+    #[arg(long = "completions", value_enum)]
+    completions: Option<Shell>,
 }
 
 static HUP_RECEIVED: AtomicBool = AtomicBool::new(false);
@@ -205,7 +211,6 @@ impl Monitor {
                 let mut body = String::new();
                 for (i, p) in pending.iter().enumerate() {
                     if i > 0 { body.push_str(" | "); }
-                    use std::fmt::Write;
                     let _ = write!(body, "{}: {}", p.alert.summary, p.alert.body);
                 }
                 let composite = checkers::Alert {
@@ -265,6 +270,11 @@ fn main() {
             eprintln!("Error: failed to send test notification. Is notify-send installed?");
             std::process::exit(1);
         }
+        return;
+    }
+
+    if let Some(shell) = cli.completions {
+        generate(shell, &mut Cli::command(), "sema", &mut std::io::stdout());
         return;
     }
 
