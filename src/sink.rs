@@ -2,12 +2,12 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use chrono::Local;
-use notify_rust::Notification;
 
-use crate::checkers::Alert;
+use crate::checkers::{Alert, Severity};
 
 const MAX_LOG_SIZE: u64 = 5 * 1024 * 1024; // 5 MB
 
@@ -32,19 +32,35 @@ fn write_log(summary: &str, body: &str) {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).ok();
     }
-    if path.exists() && let Ok(meta) = path.metadata() && meta.len() > MAX_LOG_SIZE {
+    if path.exists()
+        && let Ok(meta) = path.metadata()
+        && meta.len() > MAX_LOG_SIZE
+    {
         let rotated = path.with_extension("log.1");
         let _ = fs::rename(&path, &rotated);
     }
     let ts = Local::now().format("%Y-%m-%d %H:%M:%S");
-    if let Ok(mut f) = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&path)
         && let Err(e) = writeln!(f, "[{ts}] {summary} | {body}")
     {
         eprintln!("[sema] warning: failed to write log: {e}");
     }
+}
+
+/// 通过 notify-send 发送桌面通知。返回是否成功。
+pub fn send_notification(summary: &str, body: &str, severity: Severity) -> bool {
+    let urgency = match severity {
+        Severity::Warning => "normal",
+        Severity::Critical => "critical",
+    };
+    let mut cmd = Command::new("notify-send");
+    cmd.arg("--app-name=sema")
+        .arg(format!("--urgency={urgency}"))
+        .arg(summary);
+    if !body.is_empty() {
+        cmd.arg(body);
+    }
+    cmd.status().map(|s| s.success()).unwrap_or(false)
 }
 
 pub struct Sink {
@@ -90,9 +106,7 @@ impl Sink {
         let was = self.was_active.contains(key);
         if is_active {
             self.was_active.insert(key);
-            self.condition_started
-                .entry(key)
-                .or_insert_with(Instant::now);
+            self.condition_started.entry(key).or_insert_with(Instant::now);
         } else {
             self.condition_started.remove(key);
             self.was_active.remove(key);
@@ -116,12 +130,7 @@ impl Sink {
         if cooldown_secs > 0 && !self.can_notify(key, cooldown_secs) {
             return;
         }
-        let ok = Notification::new()
-            .summary(&alert.summary)
-            .body(&body)
-            .appname("sema")
-            .show()
-            .is_ok();
+        let ok = send_notification(&alert.summary, &body, alert.severity);
         if ok {
             if self.log_enabled {
                 write_log(&alert.summary, &body);

@@ -9,12 +9,22 @@ env:
   CARGO_TERM_COLOR: always
   BINARY_NAME: sema
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    name: Build and upload
+    name: Build ${{ matrix.target }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+          - armv7-unknown-linux-musleabihf
+          - i686-unknown-linux-musl
 
     steps:
       - name: Checkout
@@ -23,23 +33,69 @@ jobs:
       - name: Install Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          target: x86_64-unknown-linux-musl
+          target: ${{ matrix.target }}
+          components: clippy
 
-      - name: Run tests
-        run: cargo test
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          # key per target so cross-compiled artifacts don't collide
+          key: ${{ matrix.target }}
 
-      - name: Build (release, musl)
-        run: cargo build --release --target x86_64-unknown-linux-musl
+      # x86_64 builds natively; other targets cross-compile via cross+podman
+      - name: Install cross (non-x86 targets)
+        if: matrix.target != 'x86_64-unknown-linux-musl'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
 
-      - name: Package binary
+      - name: Check (x86_64 only)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
-          cd target/x86_64-unknown-linux-musl/release
-          tar czf "${BINARY_NAME}-x86_64-linux-musl.tar.gz" "${BINARY_NAME}"
-          sha256sum "${BINARY_NAME}-x86_64-linux-musl.tar.gz" > "${BINARY_NAME}-x86_64-linux-musl.tar.gz.sha256"
+          cargo clippy --all-targets -- -D warnings
+          cargo test
 
-      - name: Upload release assets
+      - name: Build (native)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Build (cross)
+        if: matrix.target != 'x86_64-unknown-linux-musl'
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Package
+        run: |
+          cd "target/${{ matrix.target }}/release"
+          ARCH=$(echo '${{ matrix.target }}' | sed 's/-unknown-/-/')
+          tar czf "${BINARY_NAME}-${ARCH}.tar.gz" "${BINARY_NAME}"
+          sha256sum "${BINARY_NAME}-${ARCH}.tar.gz" > "${BINARY_NAME}-${ARCH}.tar.gz.sha256"
+          echo "ARCH=${ARCH}" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARCH }}
+          path: target/${{ matrix.target }}/release/sema-*.tar.gz*
+          if-no-files-found: error
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: List assets
+        run: ls -lh assets/
+
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            target/x86_64-unknown-linux-musl/release/sema-x86_64-linux-musl.tar.gz
-            target/x86_64-unknown-linux-musl/release/sema-x86_64-linux-musl.tar.gz.sha256
+          files: assets/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

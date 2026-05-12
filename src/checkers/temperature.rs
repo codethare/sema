@@ -10,7 +10,10 @@ pub struct Temperature {
 
 impl Temperature {
     pub fn new(cfg: MetricConfig) -> Self {
-        Self { cfg, components: Components::new_with_refreshed_list() }
+        Self {
+            cfg,
+            components: Components::new_with_refreshed_list(),
+        }
     }
 
     fn is_cpu_sensor(label: &str) -> bool {
@@ -20,15 +23,25 @@ impl Temperature {
             return true;
         }
         // Exclude GPU/NVMe/disk sensors
-        if l.contains("gpu") || l.contains("nvidia") || l.contains("amdgpu")
-            || l.contains("nvme") || l.contains("ssd") || l.contains("hdd")
+        if l.contains("gpu")
+            || l.contains("nvidia")
+            || l.contains("amdgpu")
+            || l.contains("nvme")
+            || l.contains("ssd")
+            || l.contains("hdd")
         {
             return false;
         }
         // CPU sensors typically have these in their labels
-        l.contains("cpu") || l.contains("core") || l.contains("package")
-            || l.contains("tctl") || l.contains("tdie") || l.contains("ccd")
-            || l.contains("soc") || l.contains("edge") || l.contains("junction")
+        l.contains("cpu")
+            || l.contains("core")
+            || l.contains("package")
+            || l.contains("tctl")
+            || l.contains("tdie")
+            || l.contains("ccd")
+            || l.contains("soc")
+            || l.contains("edge")
+            || l.contains("junction")
     }
 }
 
@@ -41,7 +54,7 @@ impl Checker for Temperature {
         self.cfg.cooldown_secs
     }
 
-    fn check(&mut self, _sys: &System) -> Option<Alert> {
+    fn check(&mut self, _sys: &System) -> Result<Option<Alert>, super::CheckerError> {
         self.components.refresh(false);
         let mut hottest: Option<(String, f32)> = None;
         for comp in &self.components {
@@ -56,14 +69,18 @@ impl Checker for Temperature {
                 }
             }
         }
-        hottest.map(|(label, temp)| Alert {
-            summary: format!("{} CPU temperature high", self.cfg.severity_label(temp as f64, false)),
-            body: format!("{label}: {temp:.0}°C (threshold: {thr}°C)", thr = self.cfg.threshold),
-        })
+        Ok(hottest.map(|(label, temp)| {
+            let sev = self.cfg.severity(temp as f64, false);
+            Alert {
+                severity: sev,
+                summary: format!("{} CPU temperature high", sev.emoji()),
+                body: format!("{label}: {temp:.0}°C (threshold: {thr}°C)", thr = self.cfg.threshold),
+            }
+        }))
     }
 
     fn report(&self, _sys: &System) -> String {
-        let components = &self.components;  // dry-run: use cached, trust data is recent
+        let components = &self.components;
         let temps: Vec<(String, f32)> = components
             .iter()
             .filter(|c| Self::is_cpu_sensor(c.label()))
@@ -75,12 +92,17 @@ impl Checker for Temperature {
         let Some((_, max_temp)) = temps.iter().max_by(|(_, a), (_, b)| a.total_cmp(b)) else {
             return "  Temp    N/A".into();
         };
-        let parts: String = temps.iter()
+        let parts: String = temps
+            .iter()
             .map(|(l, t)| format!("{l}: {t:.0}°C"))
             .collect::<Vec<_>>()
             .join(", ");
-        let flag = if *max_temp > self.cfg.threshold as f32 { "⚠️" } else { "✓" };
-        format!("  Temp    {:>5.0}°C  threshold: {:>5.1}°C  {flag}  [{parts}]",
-            max_temp, self.cfg.threshold)
+        let sev = self.cfg.severity(*max_temp as f64, false);
+        let flag = if *max_temp > self.cfg.threshold as f32 {
+            sev.emoji()
+        } else {
+            "✓"
+        };
+        format!("  Temp    {:>5.0}°C  threshold: {:>5.1}°C  {flag}  [{parts}]", max_temp, self.cfg.threshold)
     }
 }

@@ -23,16 +23,17 @@ impl Checker for TimeChecker {
         self.cfg.cooldown_secs
     }
 
-    fn check(&mut self, _sys: &System) -> Option<Alert> {
+    fn check(&mut self, _sys: &System) -> Result<Option<Alert>, super::CheckerError> {
         let now = Local::now();
         let minute = now.minute();
         if minute != 0 && minute != 30 {
-            return None;
+            return Ok(None);
         }
-        Some(Alert {
+        Ok(Some(Alert {
+            severity: crate::config::Severity::Warning,
             summary: "⏰ Time reminder".into(),
             body: format!("It's {}", now.format("%H:%M")),
-        })
+        }))
     }
 
     fn report(&self, _sys: &System) -> String {

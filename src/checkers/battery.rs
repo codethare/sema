@@ -14,12 +14,24 @@ impl Battery {
         Self { cfg }
     }
 
+    fn list_batteries() -> Vec<String> {
+        match fs::read_dir("/sys/class/power_supply") {
+            Ok(entries) => entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_name().to_string_lossy().contains("BAT"))
+                .map(|e| e.path().join("capacity"))
+                .filter(|p| p.exists())
+                .map(|p| p.to_string_lossy().to_string())
+                .collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
     fn read_capacity() -> Option<u16> {
         #[cfg(target_os = "linux")]
         {
-            (0..4).find_map(|i| {
-                let path = format!("/sys/class/power_supply/BAT{i}/capacity");
-                let content = fs::read_to_string(&path).ok()?;
+            Self::list_batteries().iter().find_map(|path| {
+                let content = fs::read_to_string(path).ok()?;
                 content.trim().parse::<u16>().ok()
             })
         }
@@ -37,21 +49,31 @@ impl Checker for Battery {
         self.cfg.cooldown_secs
     }
 
-    fn check(&mut self, _sys: &System) -> Option<Alert> {
-        let capacity = Self::read_capacity()?;
+    fn check(&mut self, _sys: &System) -> Result<Option<Alert>, super::CheckerError> {
+        let capacity = match Self::read_capacity() {
+            Some(c) => c,
+            None => return Ok(None),
+        };
         if (capacity as f64) >= self.cfg.threshold {
-            return None;
+            return Ok(None);
         }
-        Some(Alert {
-            summary: format!("{} Battery low", self.cfg.severity_label(capacity as f64, true)),
+        let sev = self.cfg.severity(capacity as f64, true);
+        Ok(Some(Alert {
+            severity: sev,
+            summary: format!("{} Battery low", sev.emoji()),
             body: format!("Battery: {capacity}% (threshold: {thr}%)", thr = self.cfg.threshold),
-        })
+        }))
     }
 
     fn report(&self, _sys: &System) -> String {
         match Self::read_capacity() {
             Some(cap) => {
-                let flag = if (cap as f64) < self.cfg.threshold { "⚠️" } else { "✓" };
+                let sev = self.cfg.severity(cap as f64, true);
+                let flag = if (cap as f64) < self.cfg.threshold {
+                    sev.emoji()
+                } else {
+                    "✓"
+                };
                 format!("  Battery {:>6}%  threshold: {:>5.1}%  {flag}", cap, self.cfg.threshold)
             }
             None => format!("  Battery {:>6}    threshold: {:>5.1}%  -  (not detected)", "N/A", self.cfg.threshold),

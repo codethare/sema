@@ -18,7 +18,9 @@ impl Network {
         Self {
             cfg,
             networks: Networks::new_with_refreshed_list(),
-            prev_rx: 0, prev_tx: 0, prev_time: None,
+            prev_rx: 0,
+            prev_tx: 0,
+            prev_time: None,
         }
     }
 }
@@ -32,7 +34,7 @@ impl Checker for Network {
         self.cfg.cooldown_secs
     }
 
-    fn check(&mut self, _sys: &System) -> Option<Alert> {
+    fn check(&mut self, _sys: &System) -> Result<Option<Alert>, super::CheckerError> {
         self.networks.refresh(false);
         let mut total_rx = 0u64;
         let mut total_tx = 0u64;
@@ -48,7 +50,7 @@ impl Checker for Network {
                 self.prev_rx = total_rx;
                 self.prev_tx = total_tx;
                 self.prev_time = Some(now);
-                return None;
+                return Ok(None);
             }
         };
 
@@ -64,13 +66,14 @@ impl Checker for Network {
         let total_mbps = rx_mbps + tx_mbps;
 
         if total_mbps < self.cfg.threshold {
-            return None;
+            return Ok(None);
         }
-        Some(Alert {
-            summary: format!("{} Network traffic high", self.cfg.severity_label(total_mbps, false)),
-            body: format!("↓ {rx_mbps:.1} ↑ {tx_mbps:.1} MB/s (threshold: {thr} MB/s)",
-                thr = self.cfg.threshold),
-        })
+        let sev = self.cfg.severity(total_mbps, false);
+        Ok(Some(Alert {
+            severity: sev,
+            summary: format!("{} Network traffic high", sev.emoji()),
+            body: format!("↓ {rx_mbps:.1} ↑ {tx_mbps:.1} MB/s (threshold: {thr} MB/s)", thr = self.cfg.threshold),
+        }))
     }
 
     fn report(&self, _sys: &System) -> String {

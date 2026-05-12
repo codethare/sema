@@ -22,23 +22,27 @@ impl Checker for Swap {
         self.cfg.cooldown_secs
     }
 
-    fn check(&mut self, sys: &System) -> Option<Alert> {
+    fn check(&mut self, sys: &System) -> Result<Option<Alert>, super::CheckerError> {
         let total = sys.total_swap();
         if total == 0 {
-            return None;
+            return Ok(None);
         }
         let used = sys.used_swap();
         let usage = used as f64 / total as f64 * 100.0;
         if usage <= self.cfg.threshold {
-            return None;
+            return Ok(None);
         }
+        let sev = self.cfg.severity(usage, false);
         let used_mb = used / (1024 * 1024);
         let total_mb = total / (1024 * 1024);
-        Some(Alert {
-            summary: format!("{} Swap usage high", self.cfg.severity_label(usage, false)),
-            body: format!("Swap: {used_mb}MB / {total_mb}MB ({usage:.1}%, threshold: {thr}%)",
-                thr = self.cfg.threshold),
-        })
+        Ok(Some(Alert {
+            severity: sev,
+            summary: format!("{} Swap usage high", sev.emoji()),
+            body: format!(
+                "Swap: {used_mb}MB / {total_mb}MB ({usage:.1}%, threshold: {thr}%)",
+                thr = self.cfg.threshold
+            ),
+        }))
     }
 
     fn report(&self, sys: &System) -> String {
@@ -50,8 +54,11 @@ impl Checker for Swap {
         let usage = used as f64 / total as f64 * 100.0;
         let used_mb = used / (1024 * 1024);
         let total_mb = total / (1024 * 1024);
-        let flag = if usage > self.cfg.threshold { "⚠️" } else { "✓" };
-        format!("  Swap    {:>6.1}%  threshold: {:>5.1}%  {flag}  ({used_mb}MB / {total_mb}MB)",
-            usage, self.cfg.threshold)
+        let sev = self.cfg.severity(usage, false);
+        let flag = if usage > self.cfg.threshold { sev.emoji() } else { "✓" };
+        format!(
+            "  Swap    {:>6.1}%  threshold: {:>5.1}%  {flag}  ({used_mb}MB / {total_mb}MB)",
+            usage, self.cfg.threshold
+        )
     }
 }

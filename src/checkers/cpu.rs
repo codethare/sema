@@ -22,25 +22,29 @@ impl Checker for Cpu {
         self.cfg.cooldown_secs
     }
 
-    fn check(&mut self, sys: &System) -> Option<Alert> {
+    fn check(&mut self, sys: &System) -> Result<Option<Alert>, super::CheckerError> {
         let usage = sys.global_cpu_usage() as f64;
         if usage <= self.cfg.threshold {
-            return None;
+            return Ok(None);
         }
+        let sev = self.cfg.severity(usage, false);
         let idle = 100.0 - usage;
         let load = System::load_average();
-        Some(Alert {
-            summary: format!("{} CPU overloaded", self.cfg.severity_label(usage, false)),
-            body: format!("CPU: {usage:.1}%\nIdle: {idle:.1}%\nLoad: {:.2} {:.2} {:.2}",
-                load.one, load.five, load.fifteen),
-        })
+        Ok(Some(Alert {
+            severity: sev,
+            summary: format!("{} CPU overloaded", sev.emoji()),
+            body: format!(
+                "CPU: {usage:.1}%\nIdle: {idle:.1}%\nLoad: {:.2} {:.2} {:.2}",
+                load.one, load.five, load.fifteen
+            ),
+        }))
     }
 
     fn report(&self, sys: &System) -> String {
         let usage = sys.global_cpu_usage() as f64;
         let load = System::load_average();
-        let flag = if usage > self.cfg.threshold { "⚠️" } else { "✓" };
-        format!("  CPU     {:>6.1}%  load: {:.2} {:.2} {:.2}  {flag}",
-            usage, load.one, load.five, load.fifteen)
+        let sev = self.cfg.severity(usage, false);
+        let flag = if usage > self.cfg.threshold { sev.emoji() } else { "✓" };
+        format!("  CPU     {:>6.1}%  load: {:.2} {:.2} {:.2}  {flag}", usage, load.one, load.five, load.fifteen)
     }
 }

@@ -22,20 +22,25 @@ impl Checker for Memory {
         self.cfg.cooldown_secs
     }
 
-    fn check(&mut self, sys: &System) -> Option<Alert> {
+    fn check(&mut self, sys: &System) -> Result<Option<Alert>, super::CheckerError> {
         let total = sys.total_memory();
         if total == 0 {
-            return None;
+            return Ok(None);
         }
         let used = sys.used_memory();
         let usage = used as f64 / total as f64 * 100.0;
         if usage <= self.cfg.threshold {
-            return None;
+            return Ok(None);
         }
+        let sev = self.cfg.severity(usage, false);
         let total_mb = total / (1024 * 1024);
         let avail_mb = sys.available_memory() / (1024 * 1024);
         let body = format!("Memory: {usage:.1}%\nAvailable: {avail_mb}MB / {total_mb}MB");
-        Some(Alert { summary: format!("{} Memory usage high", self.cfg.severity_label(usage, false)), body })
+        Ok(Some(Alert {
+            severity: sev,
+            summary: format!("{} Memory usage high", sev.emoji()),
+            body,
+        }))
     }
 
     fn report(&self, sys: &System) -> String {
@@ -44,8 +49,11 @@ impl Checker for Memory {
         let usage = used as f64 / total as f64 * 100.0;
         let used_mb = used / (1024 * 1024);
         let total_mb = total / (1024 * 1024);
-        let flag = if usage > self.cfg.threshold { "⚠️" } else { "✓" };
-        format!("  Memory  {:>6.1}%  threshold: {:>5.1}%  {flag}  ({used_mb}MB / {total_mb}MB)",
-            usage, self.cfg.threshold)
+        let sev = self.cfg.severity(usage, false);
+        let flag = if usage > self.cfg.threshold { sev.emoji() } else { "✓" };
+        format!(
+            "  Memory  {:>6.1}%  threshold: {:>5.1}%  {flag}  ({used_mb}MB / {total_mb}MB)",
+            usage, self.cfg.threshold
+        )
     }
 }

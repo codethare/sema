@@ -3,27 +3,29 @@ mod config;
 mod sink;
 
 use std::fmt::Write;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
 use std::time::Duration;
 
 use clap::{CommandFactory, Parser};
-use clap_complete::{generate, Shell};
-use notify_rust::Notification;
-use sysinfo::{
-    CpuRefreshKind, MemoryRefreshKind, RefreshKind, System,
-};
+use clap_complete::{Shell, generate};
+use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
+use tracing_subscriber::EnvFilter;
 
-use checkers::Checker;
+use checkers::{Checker, CheckerError, Severity};
 use config::Config;
-use sink::Sink;
+use sink::{Sink, send_notification};
 
 #[derive(Parser)]
-#[command(name = "sema", version, about = "Linux system resource monitor",
-    after_help = "Config: ~/.config/sema/config.toml\nLog:    ~/.local/share/sema/sema.log")]
+#[command(
+    name = "sema",
+    version,
+    about = "Linux system resource monitor",
+    after_help = "Config: ~/.config/sema/config.toml\nLog:    ~/.local/share/sema/sema.log"
+)]
 struct Cli {
     /// Print system status and exit (no notifications)
     #[arg(short = 'n', long = "dry-run")]
@@ -41,7 +43,7 @@ struct Cli {
     #[arg(long = "force")]
     force: bool,
 
-/// Send a test notification to verify notify-send
+    /// Send a test notification to verify notify-send
     #[arg(long = "test")]
     test: bool,
 
@@ -63,9 +65,7 @@ fn handle_sigterm() {
 
 fn sd_notify(state: &str) {
     use std::os::unix::net::UnixDatagram;
-    static SOCK: LazyLock<Option<UnixDatagram>> = LazyLock::new(|| {
-        UnixDatagram::unbound().ok()
-    });
+    static SOCK: LazyLock<Option<UnixDatagram>> = LazyLock::new(|| UnixDatagram::unbound().ok());
     static PATH: LazyLock<Option<String>> = LazyLock::new(|| std::env::var("NOTIFY_SOCKET").ok());
     let sock = match SOCK.as_ref() {
         Some(s) => s,
@@ -97,7 +97,13 @@ impl Monitor {
         let log_enabled = cfg.log.enabled;
         let checkers = cfg.into_checkers();
         let sink = Sink::new(dry_run, log_enabled);
-        Self { sys, sink, checkers, check_interval, config_path }
+        Self {
+            sys,
+            sink,
+            checkers,
+            check_interval,
+            config_path,
+        }
     }
 
     fn reload(&mut self) {
@@ -106,12 +112,14 @@ impl Monitor {
         self.check_interval = Duration::from_secs(cfg.check_interval_secs);
         self.checkers = cfg.into_checkers();
         self.sink.set_log_enabled(log_enabled);
-        eprintln!("[sema] config reloaded ({} checkers)", self.checkers.len());
+        tracing::info!("config reloaded ({} checkers)", self.checkers.len());
     }
 
     fn print_banner(&self) {
         let mode = if self.sink.dry_run { " (dry-run)" } else { "" };
-        let config_display = self.config_path.as_ref()
+        let config_display = self
+            .config_path
+            .as_ref()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| config::config_path().display().to_string());
         println!(
@@ -158,7 +166,7 @@ impl Monitor {
                 alert: checkers::Alert,
             }
             let mut pending: Vec<PendingAlert> = Vec::new();
-            let mut crash_keys: Vec<&str> = Vec::new();
+            let mut crashed_checkers: Vec<&str> = Vec::new();
 
             let sys = &self.sys;
             let sink = &mut self.sink;
@@ -168,34 +176,47 @@ impl Monitor {
 
                 let result = catch_unwind(AssertUnwindSafe(|| c.check(sys)));
                 match result {
-                    Ok(Some(alert)) => {
+                    Ok(Ok(Some(alert))) => {
                         sink.note_active(key, true);
                         pending.push(PendingAlert { key, cooldown, alert });
                     }
-                    Ok(None) => {
+                    Ok(Ok(None)) => {
                         if sink.note_active(key, false) {
                             pending.push(PendingAlert {
-                                key, cooldown: 0,
+                                key,
+                                cooldown: 0,
                                 alert: checkers::Alert {
+                                    severity: Severity::Warning,
                                     summary: format!("✅ {key} back to normal"),
                                     body: String::new(),
                                 },
                             });
                         }
                     }
-                    Err(_) => {
-                        eprintln!("[sema] checker '{key}' panicked, continuing");
-                        crash_keys.push(key);
+                    Ok(Err(CheckerError::Io(e))) => {
+                        tracing::error!("checker '{key}' I/O error: {e}");
+                        crashed_checkers.push(key);
+                    }
+                    Err(panic) => {
+                        let msg = if let Some(s) = panic.as_ref().downcast_ref::<&str>() {
+                            s
+                        } else if let Some(s) = panic.as_ref().downcast_ref::<String>() {
+                            s.as_str()
+                        } else {
+                            "<unknown>"
+                        };
+                        tracing::error!("checker '{key}' panicked: {msg}");
+                        crashed_checkers.push(key);
                     }
                 }
             }
 
-            for k in crash_keys {
-                let _ = Notification::new()
-                    .summary("⚠️ sema: checker crashed")
-                    .body(&format!("'{k}' panicked, sema is still running"))
-                    .appname("sema")
-                    .show();
+            for k in crashed_checkers {
+                send_notification(
+                    "⚠️ sema: checker crashed",
+                    &format!("'{k}' crashed, sema is still running"),
+                    Severity::Critical,
+                );
             }
 
             // Phase 2: send grouped or individual notifications
@@ -206,10 +227,13 @@ impl Monitor {
                 let min_cooldown = pending.iter().map(|p| p.cooldown).min().unwrap_or(60);
                 let mut body = String::new();
                 for (i, p) in pending.iter().enumerate() {
-                    if i > 0 { body.push_str(" | "); }
+                    if i > 0 {
+                        body.push_str(" | ");
+                    }
                     let _ = write!(body, "{}: {}", p.alert.summary, p.alert.body);
                 }
                 let composite = checkers::Alert {
+                    severity: Severity::Warning,
                     summary: format!("{} alerts", pending.len()),
                     body,
                 };
@@ -229,11 +253,23 @@ impl Monitor {
     }
 }
 
+fn init_tracing() {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")))
+        .with_writer(std::io::stderr)
+        .with_target(false)
+        .without_time()
+        .init();
+}
+
 fn main() {
+    init_tracing();
+
     let cli = Cli::parse();
 
     // Enforce single instance via PID file
-    if !cli.init && !cli.test
+    if !cli.init
+        && !cli.test
         && let Err(e) = single_instance::SingleInstance::new("sema")
     {
         eprintln!("Error: another sema instance is already running ({e})");
@@ -254,12 +290,11 @@ fn main() {
     }
 
     if cli.test {
-        let ok = Notification::new()
-            .summary("🔍 sema test notification")
-            .body("If you can read this, notify-send is working correctly.")
-            .appname("sema")
-            .show()
-            .is_ok();
+        let ok = send_notification(
+            "🔍 sema test notification",
+            "If you can read this, notify-send is working correctly.",
+            Severity::Warning,
+        );
         if ok {
             println!("Test notification sent successfully.");
         } else {
@@ -275,13 +310,13 @@ fn main() {
     }
 
     if let Err(e) = unsafe { signal_hook::low_level::register(signal_hook::consts::SIGHUP, handle_sighup) } {
-        eprintln!("[sema] warning: cannot register SIGHUP handler: {e}");
+        tracing::warn!("cannot register SIGHUP handler: {e}");
     }
     if let Err(e) = unsafe { signal_hook::low_level::register(signal_hook::consts::SIGTERM, handle_sigterm) } {
-        eprintln!("[sema] warning: cannot register SIGTERM handler: {e}");
+        tracing::warn!("cannot register SIGTERM handler: {e}");
     }
     if let Err(e) = unsafe { signal_hook::low_level::register(signal_hook::consts::SIGINT, handle_sigterm) } {
-        eprintln!("[sema] warning: cannot register SIGINT handler: {e}");
+        tracing::warn!("cannot register SIGINT handler: {e}");
     }
 
     let dry_run = cli.dry_run;

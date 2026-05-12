@@ -38,6 +38,23 @@ pub struct Config {
     pub log: LogConfig,
 }
 
+/// 告警级别
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Warning,
+    Critical,
+}
+
+impl Severity {
+    /// 用于展示的 emoji
+    pub fn emoji(self) -> &'static str {
+        match self {
+            Severity::Warning => "⚠️",
+            Severity::Critical => "🔴",
+        }
+    }
+}
+
 /// 通用指标配置（CPU / 内存 / Swap / 电池 / 温度 / 网络）
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, default)]
@@ -51,18 +68,25 @@ pub struct MetricConfig {
 
 impl Default for MetricConfig {
     fn default() -> Self {
-        Self { enabled: true, threshold: 0.0, critical: None, cooldown_secs: 60 }
+        Self {
+            enabled: true,
+            threshold: 0.0,
+            critical: None,
+            cooldown_secs: 60,
+        }
     }
 }
 
 impl MetricConfig {
-    /// 根据值判定告警级别标签。`inverted`=true 时越低越严重（如电池）。
-    pub fn severity_label(&self, val: f64, inverted: bool) -> &'static str {
+    /// 根据值判定告警级别。`inverted`=true 时越低越严重（如电池）。
+    pub fn severity(&self, val: f64, inverted: bool) -> Severity {
         if let Some(crit) = self.critical {
             let severe = if inverted { val < crit } else { val > crit };
-            if severe { return "🔴" }
+            if severe {
+                return Severity::Critical;
+            }
         }
-        "⚠️"
+        Severity::Warning
     }
 }
 
@@ -76,7 +100,10 @@ pub struct TimeConfig {
 
 impl Default for TimeConfig {
     fn default() -> Self {
-        Self { enabled: true, cooldown_secs: 60 }
+        Self {
+            enabled: true,
+            cooldown_secs: 60,
+        }
     }
 }
 
@@ -120,11 +147,21 @@ metric_defaults! {
 }
 
 pub fn default_temperature() -> MetricConfig {
-    MetricConfig { enabled: true, threshold: 80.0, critical: Some(95.0), cooldown_secs: 60 }
+    MetricConfig {
+        enabled: true,
+        threshold: 80.0,
+        critical: Some(95.0),
+        cooldown_secs: 60,
+    }
 }
 
 pub fn default_network() -> MetricConfig {
-    MetricConfig { enabled: true, threshold: 100.0, critical: Some(500.0), cooldown_secs: 60 }
+    MetricConfig {
+        enabled: true,
+        threshold: 100.0,
+        critical: Some(500.0),
+        cooldown_secs: 60,
+    }
 }
 
 pub fn default_time() -> TimeConfig {
@@ -156,12 +193,8 @@ impl Config {
                 return Config::default();
             }
         };
-        match toml::from_str::<ConfigRaw>(&content) {
-            Ok(raw) => {
-                let mut cfg = Config::from_raw(raw);
-                cfg.validate();
-                cfg
-            }
+        match toml::from_str::<ConfigFile>(&content) {
+            Ok(raw) => raw.into(),
             Err(e) => {
                 eprintln!("[sema] warning: config parse failed: {e}\n       using defaults");
                 Config::default()
@@ -169,24 +202,12 @@ impl Config {
         }
     }
 
-    fn from_raw(raw: ConfigRaw) -> Self {
-        Config {
-            check_interval_secs: raw.check_interval_secs.unwrap_or_else(default_check_interval),
-            cpu: raw.cpu.unwrap_or_else(default_cpu),
-            memory: raw.memory.unwrap_or_else(default_memory),
-            swap: raw.swap.unwrap_or_else(default_swap),
-            battery: raw.battery.unwrap_or_else(default_battery),
-            time: raw.time.unwrap_or_else(default_time),
-            temperature: raw.temperature.unwrap_or_else(default_temperature),
-            network: raw.network.unwrap_or_else(default_network),
-            log: raw.log.unwrap_or_else(default_log),
-        }
-    }
-
     fn validate(&mut self) {
         if self.check_interval_secs < MIN_INTERVAL || self.check_interval_secs > MAX_INTERVAL {
-            eprintln!("[sema] warning: check_interval_secs {} out of range [{MIN_INTERVAL},{MAX_INTERVAL}], clamped",
-                self.check_interval_secs);
+            eprintln!(
+                "[sema] warning: check_interval_secs {} out of range [{MIN_INTERVAL},{MAX_INTERVAL}], clamped",
+                self.check_interval_secs
+            );
             self.check_interval_secs = self.check_interval_secs.clamp(MIN_INTERVAL, MAX_INTERVAL);
         }
         Self::validate_metric("cpu", &mut self.cpu, 0.0, 100.0);
@@ -196,8 +217,10 @@ impl Config {
         Self::validate_metric("temperature", &mut self.temperature, 0.0, 150.0);
         Self::validate_metric("network", &mut self.network, 0.0, 1_000_000.0);
         if self.time.cooldown_secs < MIN_COOLDOWN {
-            eprintln!("[sema] warning: time.cooldown_secs {} < {MIN_COOLDOWN}, set to {MIN_COOLDOWN}",
-                self.time.cooldown_secs);
+            eprintln!(
+                "[sema] warning: time.cooldown_secs {} < {MIN_COOLDOWN}, set to {MIN_COOLDOWN}",
+                self.time.cooldown_secs
+            );
             self.time.cooldown_secs = MIN_COOLDOWN;
         }
     }
@@ -207,13 +230,17 @@ impl Config {
             eprintln!("[sema] warning: {name}.threshold {} out of range [{lo},{hi}], clamped", m.threshold);
             m.threshold = m.threshold.clamp(lo, hi);
         }
-        if let Some(crit) = &mut m.critical && (*crit < lo || *crit > hi) {
+        if let Some(crit) = &mut m.critical
+            && (*crit < lo || *crit > hi)
+        {
             eprintln!("[sema] warning: {name}.critical {} out of range [{lo},{hi}], clamped", crit);
             *crit = crit.clamp(lo, hi);
         }
         if m.cooldown_secs < MIN_COOLDOWN {
-            eprintln!("[sema] warning: {name}.cooldown_secs {} < {MIN_COOLDOWN}, set to {MIN_COOLDOWN}",
-                m.cooldown_secs);
+            eprintln!(
+                "[sema] warning: {name}.cooldown_secs {} < {MIN_COOLDOWN}, set to {MIN_COOLDOWN}",
+                m.cooldown_secs
+            );
             m.cooldown_secs = MIN_COOLDOWN;
         }
     }
@@ -239,7 +266,7 @@ impl Default for Config {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ConfigRaw {
+struct ConfigFile {
     check_interval_secs: Option<u64>,
     cpu: Option<MetricConfig>,
     memory: Option<MetricConfig>,
@@ -249,6 +276,24 @@ struct ConfigRaw {
     temperature: Option<MetricConfig>,
     network: Option<MetricConfig>,
     log: Option<LogConfig>,
+}
+
+impl From<ConfigFile> for Config {
+    fn from(raw: ConfigFile) -> Self {
+        let mut cfg = Config {
+            check_interval_secs: raw.check_interval_secs.unwrap_or_else(default_check_interval),
+            cpu: raw.cpu.unwrap_or_else(default_cpu),
+            memory: raw.memory.unwrap_or_else(default_memory),
+            swap: raw.swap.unwrap_or_else(default_swap),
+            battery: raw.battery.unwrap_or_else(default_battery),
+            time: raw.time.unwrap_or_else(default_time),
+            temperature: raw.temperature.unwrap_or_else(default_temperature),
+            network: raw.network.unwrap_or_else(default_network),
+            log: raw.log.unwrap_or_else(default_log),
+        };
+        cfg.validate();
+        cfg
+    }
 }
 
 pub fn config_path() -> PathBuf {
@@ -265,7 +310,8 @@ pub fn generate_default_config(path: &std::path::Path) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(path,
+    std::fs::write(
+        path,
         concat!(
             "# sema configuration\n",
             "# See https://github.com/codethare/sema for documentation\n",
@@ -310,7 +356,8 @@ pub fn generate_default_config(path: &std::path::Path) -> std::io::Result<()> {
             "\n",
             "[log]\n",
             "enabled = true\n",
-        ))
+        ),
+    )
 }
 
 fn dirs_next_config_dir() -> Option<PathBuf> {

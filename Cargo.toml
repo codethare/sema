@@ -1,6 +1,6 @@
 [package]
 name = "sema"
-version = "0.0.7"
+version = "0.0.8"
 edition = "2024"
 description = "Linux system resource monitor with desktop notifications. Monitors CPU, memory, swap, battery, temperature, network, and time."
 authors = ["codethare"]
@@ -9,7 +9,6 @@ repository = "https://github.com/codethare/sema"
 
 [dependencies]
 sysinfo = "0.39"
-notify-rust = "4.17"
 chrono = "0.4"
 serde = { version = "1", features = ["derive"] }
 toml = "1.1"
@@ -17,6 +16,9 @@ signal-hook = "0.4"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 single-instance = "0.3"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [profile.release]
 lto = true
