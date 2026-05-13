@@ -225,7 +225,7 @@ impl Monitor {
                     300,
                     &checkers::Alert {
                         severity: Severity::Critical,
-                        summary: format!("⚠️ sema: checker crashed"),
+                        summary: "⚠️ sema: checker crashed".to_string(),
                         body: format!("'{k}' crashed, sema is still running"),
                     },
                 );
