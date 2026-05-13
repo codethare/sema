@@ -63,19 +63,38 @@ fn handle_sigterm() {
     TERM_RECEIVED.store(true, Ordering::SeqCst);
 }
 
+fn check_notify_send() {
+    let ok = Command::new("notify-send")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !ok {
+        tracing::warn!("notify-send not available, desktop notifications will be disabled");
+    }
+}
+
 fn sd_notify(state: &str) {
     use std::os::unix::net::UnixDatagram;
     static SOCK: LazyLock<Option<UnixDatagram>> = LazyLock::new(|| UnixDatagram::unbound().ok());
     static PATH: LazyLock<Option<String>> = LazyLock::new(|| std::env::var("NOTIFY_SOCKET").ok());
     let sock = match SOCK.as_ref() {
         Some(s) => s,
-        None => return,
+        None => {
+            tracing::warn!("sd_notify: no UnixDatagram socket available");
+            return;
+        }
     };
     let path = match PATH.as_ref() {
         Some(p) => p,
-        None => return,
+        None => {
+            tracing::warn!("sd_notify: NOTIFY_SOCKET not set");
+            return;
+        }
     };
-    let _ = sock.send_to(state.as_bytes(), path);
+    if let Err(e) = sock.send_to(state.as_bytes(), path) {
+        tracing::warn!("sd_notify failed: {e}");
+    }
 }
 
 struct Monitor {
@@ -137,6 +156,7 @@ impl Monitor {
     }
 
     fn run(&mut self) {
+        check_notify_send();
         self.print_banner();
         sd_notify("READY=1\nSTATUS=Monitoring...\nMAINPID=1");
 
@@ -212,10 +232,14 @@ impl Monitor {
             }
 
             for k in crashed_checkers {
-                send_notification(
-                    "⚠️ sema: checker crashed",
-                    &format!("'{k}' crashed, sema is still running"),
-                    Severity::Critical,
+                sink.notify(
+                    "checker_crash",
+                    300,
+                    &checkers::Alert {
+                        severity: Severity::Critical,
+                        summary: format!("⚠️ sema: checker crashed"),
+                        body: format!("'{k}' crashed, sema is still running"),
+                    },
                 );
             }
 

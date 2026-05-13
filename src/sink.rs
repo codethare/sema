@@ -60,7 +60,17 @@ pub fn send_notification(summary: &str, body: &str, severity: Severity) -> bool 
     if !body.is_empty() {
         cmd.arg(body);
     }
-    cmd.status().map(|s| s.success()).unwrap_or(false)
+    match cmd.status() {
+        Ok(s) if s.success() => true,
+        Ok(s) => {
+            tracing::warn!("notify-send exited with code: {s:?}");
+            false
+        }
+        Err(e) => {
+            tracing::warn!("notify-send failed to execute: {e}");
+            false
+        }
+    }
 }
 
 pub struct Sink {

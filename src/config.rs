@@ -70,7 +70,7 @@ impl Default for MetricConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            threshold: 0.0,
+            threshold: 50.0,
             critical: None,
             cooldown_secs: 60,
         }

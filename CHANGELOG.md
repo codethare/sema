@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.0.9] — 2026-05-13
+
+### Bug Fixes
+- `MetricConfig::default()` threshold was 0.0, causing false alerts when config section missing `threshold` field (P0)
+- `send_notification()` failure was completely silent, now logs `tracing::warn!` (P0)
+- `sd_notify()` errors were silently discarded, now logs socket/connection failures (P1)
+- Checker crash notifications bypassed `Sink` cooldown, causing notification spam (P1)
+
+### Added
+- Startup check for `notify-send` availability with warning log
+
 ## [0.0.8] — 2026-05-12
 
 ### Code Quality
