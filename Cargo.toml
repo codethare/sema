@@ -17,6 +17,7 @@ clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 single-instance = "0.3"
 thiserror = "2"
+notify-rust = "4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

@@ -2,8 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
 use std::time::{Duration, Instant};
+
+use notify_rust::{Notification, Urgency};
 
 use chrono::Local;
 
@@ -47,27 +48,23 @@ fn write_log(summary: &str, body: &str) {
     }
 }
 
-/// 通过 notify-send 发送桌面通知。返回是否成功。
+/// 通过 notify-rust 发送桌面通知。返回是否成功。
 pub fn send_notification(summary: &str, body: &str, severity: Severity) -> bool {
     let urgency = match severity {
-        Severity::Warning => "normal",
-        Severity::Critical => "critical",
+        Severity::Warning => Urgency::Normal,
+        Severity::Critical => Urgency::Critical,
     };
-    let mut cmd = Command::new("notify-send");
-    cmd.arg("--app-name=sema")
-        .arg(format!("--urgency={urgency}"))
-        .arg(summary);
+    let mut n = Notification::new();
+    n.appname("sema")
+        .summary(summary)
+        .urgency(urgency);
     if !body.is_empty() {
-        cmd.arg(body);
+        n.body(body);
     }
-    match cmd.status() {
-        Ok(s) if s.success() => true,
-        Ok(s) => {
-            tracing::warn!("notify-send exited with code: {s:?}");
-            false
-        }
+    match n.show() {
+        Ok(_) => true,
         Err(e) => {
-            tracing::warn!("notify-send failed to execute: {e}");
+            tracing::warn!("notification failed: {e}");
             false
         }
     }

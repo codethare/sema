@@ -43,7 +43,7 @@ struct Cli {
     #[arg(long = "force")]
     force: bool,
 
-    /// Send a test notification to verify notify-send
+    /// Send a test notification to verify notifications work
     #[arg(long = "test")]
     test: bool,
 
@@ -61,17 +61,6 @@ fn handle_sighup() {
 
 fn handle_sigterm() {
     TERM_RECEIVED.store(true, Ordering::SeqCst);
-}
-
-fn check_notify_send() {
-    let ok = Command::new("notify-send")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if !ok {
-        tracing::warn!("notify-send not available, desktop notifications will be disabled");
-    }
 }
 
 fn sd_notify(state: &str) {
@@ -156,7 +145,6 @@ impl Monitor {
     }
 
     fn run(&mut self) {
-        check_notify_send();
         self.print_banner();
         sd_notify("READY=1\nSTATUS=Monitoring...\nMAINPID=1");
 
@@ -316,13 +304,13 @@ fn main() {
     if cli.test {
         let ok = send_notification(
             "🔍 sema test notification",
-            "If you can read this, notify-send is working correctly.",
+            "If you can read this, desktop notifications are working correctly.",
             Severity::Warning,
         );
         if ok {
             println!("Test notification sent successfully.");
         } else {
-            eprintln!("Error: failed to send test notification. Is notify-send installed?");
+            eprintln!("Error: failed to send test notification. Is a notification daemon running?");
             std::process::exit(1);
         }
         return;
