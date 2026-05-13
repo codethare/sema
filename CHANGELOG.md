@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.10] — 2026-05-13
+
+### Changed
+- Replaced `notify-send` CLI invocation with `notify-rust` D-Bus crate
+  - Desktop notifications now go through D-Bus directly (no subprocess)
+  - Removes external dependency on `libnotify`/`notify-send` binary
+  - Notification behavior (`--test`, `--dry-run`, cooldown, grouping, logging) unchanged
+- Removed `check_notify_send()` startup check — no longer needed
+
 ## [0.0.9] — 2026-05-13
 
 ### Bug Fixes

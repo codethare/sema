@@ -2,7 +2,7 @@
 
 > **σῆμα** (sêma) — Ancient Greek for "signal, alarm".
 
-A lightweight system resource monitoring daemon for Linux. It monitors CPU, memory, swap, battery, temperature, and network, and sends desktop notifications via `notify-send` when configured thresholds are exceeded.
+A lightweight system resource monitoring daemon for Linux. It monitors CPU, memory, swap, battery, temperature, and network, and sends desktop notifications when configured thresholds are exceeded.
 
 [**中文文档 (Chinese)**](README.zh.md)
 
@@ -265,7 +265,7 @@ This is useful for tweaking thresholds or enabling/disabling metrics on the fly.
 | Crate | Purpose | Version |
 |-------|---------|---------|
 | [sysinfo](https://crates.io/crates/sysinfo) | CPU / memory / swap / processes / temperature | 0.39 |
-| [notify-rust](https://crates.io/crates/notify-rust) | Desktop notifications (notify-send) | 4.17 |
+| [notify-rust](https://crates.io/crates/notify-rust) | Desktop notifications (D-Bus) | 4 |
 | [chrono](https://crates.io/crates/chrono) | Time handling | 0.4 |
 | [serde](https://crates.io/crates/serde) | Config serialization | 1 |
 | [toml](https://crates.io/crates/toml) | TOML config parsing | 1.1 |

@@ -1,6 +1,6 @@
 # sema (σῆμα)
 
-Arch Linux 系统资源监控守护工具。实时监控 CPU、内存、Swap、电池、温度和网络流量，超出阈值时通过桌面通知（`notify-send`）发出提醒。
+Arch Linux 系统资源监控守护工具。实时监控 CPU、内存、Swap、电池、温度和网络流量，超出阈值时通过桌面通知发出提醒。
 
 > **σῆμα** (sêma) — 古希腊语"信号、警报"。
 
@@ -240,7 +240,7 @@ killall -HUP sema
 | crate | 用途 | 版本 |
 |-------|------|------|
 | [sysinfo](https://crates.io/crates/sysinfo) | CPU / 内存 / Swap / 进程 / 温度 | 0.39 |
-| [notify-rust](https://crates.io/crates/notify-rust) | 桌面通知（通过 notify-send） | 4.17 |
+| [notify-rust](https://crates.io/crates/notify-rust) | 桌面通知（D-Bus） | 4 |
 | [chrono](https://crates.io/crates/chrono) | 时间处理 | 0.4 |
 | [serde](https://crates.io/crates/serde) | 配置序列化 | 1 |
 | [toml](https://crates.io/crates/toml) | TOML 配置解析 | 1.1 |
