@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.0] — 2026-05-14
+
+### Added
+- Parallel checker execution via `std::thread::scope` — reduces monitoring cycle latency
+- Network interface filtering: `exclude_loopback` (excludes `lo` by default) and optional `include_interfaces` whitelist
+- Disk I/O wait monitoring: reads `/proc/stat` iowait field with delta-based percentage calculation
+- `DiskIo` checker reports I/O wait as percentage with configurable thresholds
+
+### Changed
+- `Checker::check()` signature: `&mut self` → `&self` for thread-safe parallel execution
+- `Checker` now requires `Send` supertrait
+- Internal mutable state refactored to `RefCell`/`Cell` for disk, temperature, and network checkers
+- Network config type changed from `MetricConfig` to `NetworkConfig` (with interface filtering fields)
+- Release version bumped to `0.1.0` (minor — new features + non-breaking trait refactor)
+
 ## [0.0.10] — 2026-05-13
 
 ### Changed

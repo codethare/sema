@@ -1,7 +1,8 @@
 [package]
 name = "sema"
-version = "0.0.10"
+version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 description = "Linux system resource monitor with desktop notifications. Monitors CPU, memory, swap, battery, temperature, network, and time."
 authors = ["codethare"]
 license = "MIT"
@@ -18,6 +19,7 @@ clap_complete = "4"
 single-instance = "0.3"
 thiserror = "2"
 notify-rust = "4"
+libc = "0.2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

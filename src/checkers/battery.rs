@@ -49,7 +49,7 @@ impl Checker for Battery {
         self.cfg.cooldown_secs
     }
 
-    fn check(&mut self, _sys: &System) -> Result<Option<Alert>, super::CheckerError> {
+    fn check(&self, _sys: &System) -> Result<Option<Alert>, super::CheckerError> {
         let capacity = match Self::read_capacity() {
             Some(c) => c,
             None => return Ok(None),
@@ -77,6 +77,42 @@ impl Checker for Battery {
                 format!("  Battery {:>6}%  threshold: {:>5.1}%  {flag}", cap, self.cfg.threshold)
             }
             None => format!("  Battery {:>6}    threshold: {:>5.1}%  -  (not detected)", "N/A", self.cfg.threshold),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_returns_battery() {
+        let b = Battery::new(MetricConfig::default());
+        assert_eq!(b.key(), "battery");
+    }
+
+    #[test]
+    fn cooldown_returns_from_config() {
+        let cfg = MetricConfig { cooldown_secs: 200, ..Default::default() };
+        let b = Battery::new(cfg);
+        assert_eq!(b.cooldown_secs(), 200);
+    }
+
+    #[test]
+    fn check_returns_none_when_no_batteries_found() {
+        // On systems without batteries, check returns Ok(None)
+        let b = Battery::new(MetricConfig::default());
+        let sys = System::new();
+        let result = b.check(&sys).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn list_batteries_on_non_linux() {
+        #[cfg(not(target_os = "linux"))]
+        {
+            let batteries = Battery::list_batteries();
+            assert!(batteries.is_empty());
         }
     }
 }

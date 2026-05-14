@@ -22,9 +22,9 @@ impl Checker for Cpu {
         self.cfg.cooldown_secs
     }
 
-    fn check(&mut self, sys: &System) -> Result<Option<Alert>, super::CheckerError> {
+    fn check(&self, sys: &System) -> Result<Option<Alert>, super::CheckerError> {
         let usage = sys.global_cpu_usage() as f64;
-        if usage <= self.cfg.threshold {
+        if usage.is_nan() || usage <= self.cfg.threshold {
             return Ok(None);
         }
         let sev = self.cfg.severity(usage, false);
@@ -42,9 +42,30 @@ impl Checker for Cpu {
 
     fn report(&self, sys: &System) -> String {
         let usage = sys.global_cpu_usage() as f64;
+        if usage.is_nan() {
+            return "  CPU     N/A".into();
+        }
         let load = System::load_average();
         let sev = self.cfg.severity(usage, false);
         let flag = if usage > self.cfg.threshold { sev.emoji() } else { "✓" };
         format!("  CPU     {:>6.1}%  load: {:.2} {:.2} {:.2}  {flag}", usage, load.one, load.five, load.fifteen)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_returns_cpu() {
+        let c = Cpu::new(MetricConfig::default());
+        assert_eq!(c.key(), "cpu");
+    }
+
+    #[test]
+    fn cooldown_returns_from_config() {
+        let cfg = MetricConfig { cooldown_secs: 300, ..Default::default() };
+        let c = Cpu::new(cfg);
+        assert_eq!(c.cooldown_secs(), 300);
     }
 }

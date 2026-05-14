@@ -22,7 +22,7 @@ impl Checker for Swap {
         self.cfg.cooldown_secs
     }
 
-    fn check(&mut self, sys: &System) -> Result<Option<Alert>, super::CheckerError> {
+    fn check(&self, sys: &System) -> Result<Option<Alert>, super::CheckerError> {
         let total = sys.total_swap();
         if total == 0 {
             return Ok(None);
@@ -60,5 +60,23 @@ impl Checker for Swap {
             "  Swap    {:>6.1}%  threshold: {:>5.1}%  {flag}  ({used_mb}MB / {total_mb}MB)",
             usage, self.cfg.threshold
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_returns_swap() {
+        let s = Swap::new(MetricConfig::default());
+        assert_eq!(s.key(), "swap");
+    }
+
+    #[test]
+    fn cooldown_returns_from_config() {
+        let cfg = MetricConfig { cooldown_secs: 90, ..Default::default() };
+        let s = Swap::new(cfg);
+        assert_eq!(s.cooldown_secs(), 90);
     }
 }

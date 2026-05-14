@@ -10,8 +10,8 @@ A lightweight system resource monitoring daemon for Linux. It monitors CPU, memo
 
 | Metric      | Default Threshold | Description |
 |-------------|-------------------|-------------|
-| CPU         | > 50% (⚠️) / critical (🔴) | Global CPU usage. Shows top 3 processes. |
-| Memory      | > 50% (⚠️) / critical (🔴) | Physical memory usage. Shows top 3 processes. |
+| CPU         | > 50% (⚠️) / critical (🔴) | Global CPU usage. |
+| Memory      | > 50% (⚠️) / critical (🔴) | Physical memory usage. |
 | Swap        | > 80% (⚠️)                  | Swap usage. |
 | Battery     | < 84% (⚠️)                  | Battery charge level. |
 | Temperature | > 80°C (⚠️) / > 95°C (🔴)  | CPU component temperature only (excludes GPU/NVMe). |
@@ -23,7 +23,6 @@ A lightweight system resource monitoring daemon for Linux. It monitors CPU, memo
 - **Recovery notifications**: notified when a metric returns to normal (✅)
 - **Auto-grouping**: multiple concurrent alerts combined into a single notification
 - Notification shows **duration** the condition has persisted
-- Notification includes **top 3 resource-consuming processes** (CPU/memory alerts)
 - Fully configurable via TOML file
 - Config values are **automatically validated and clamped** on load
 - Logs all alerts to disk with **auto-rotation** (5 MB)

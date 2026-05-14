@@ -23,7 +23,7 @@ impl Checker for TimeChecker {
         self.cfg.cooldown_secs
     }
 
-    fn check(&mut self, _sys: &System) -> Result<Option<Alert>, super::CheckerError> {
+    fn check(&self, _sys: &System) -> Result<Option<Alert>, super::CheckerError> {
         let now = Local::now();
         let minute = now.minute();
         if minute != 0 && minute != 30 {
@@ -42,5 +42,32 @@ impl Checker for TimeChecker {
         let is_time = minute == 0 || minute == 30;
         let status = if is_time { "will trigger" } else { "—" };
         format!("  Time    {:>2}:{:02}       :00/:30  {status}", now.hour(), minute)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_returns_time() {
+        let t = TimeChecker::new(TimeConfig::default());
+        assert_eq!(t.key(), "time");
+    }
+
+    #[test]
+    fn cooldown_returns_from_config() {
+        let cfg = TimeConfig { enabled: true, cooldown_secs: 120 };
+        let t = TimeChecker::new(cfg);
+        assert_eq!(t.cooldown_secs(), 120);
+    }
+
+    #[test]
+    fn report_contains_time_format() {
+        let t = TimeChecker::new(TimeConfig::default());
+        let sys = System::new();
+        let report = t.report(&sys);
+        assert!(report.starts_with("  Time"));
+        assert!(report.contains(":00/:30"));
     }
 }

@@ -22,7 +22,7 @@ impl Checker for Memory {
         self.cfg.cooldown_secs
     }
 
-    fn check(&mut self, sys: &System) -> Result<Option<Alert>, super::CheckerError> {
+    fn check(&self, sys: &System) -> Result<Option<Alert>, super::CheckerError> {
         let total = sys.total_memory();
         if total == 0 {
             return Ok(None);
@@ -45,6 +45,9 @@ impl Checker for Memory {
 
     fn report(&self, sys: &System) -> String {
         let total = sys.total_memory();
+        if total == 0 {
+            return "  Memory    N/A  threshold: N/A".into();
+        }
         let used = sys.used_memory();
         let usage = used as f64 / total as f64 * 100.0;
         let used_mb = used / (1024 * 1024);
@@ -55,5 +58,23 @@ impl Checker for Memory {
             "  Memory  {:>6.1}%  threshold: {:>5.1}%  {flag}  ({used_mb}MB / {total_mb}MB)",
             usage, self.cfg.threshold
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_returns_memory() {
+        let m = Memory::new(MetricConfig::default());
+        assert_eq!(m.key(), "memory");
+    }
+
+    #[test]
+    fn cooldown_returns_from_config() {
+        let cfg = MetricConfig { cooldown_secs: 120, ..Default::default() };
+        let m = Memory::new(cfg);
+        assert_eq!(m.cooldown_secs(), 120);
     }
 }

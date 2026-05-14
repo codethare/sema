@@ -7,6 +7,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -75,13 +76,22 @@ fn sd_notify(state: &str) {
         }
     };
     let path = match PATH.as_ref() {
-        Some(p) => p,
+        Some(p) => {
+            // Only accept abstract sockets (@...) or paths under /run/
+            if !p.starts_with('@') && !p.starts_with("/run/") {
+                tracing::warn!("sd_notify: invalid NOTIFY_SOCKET '{p}', ignoring");
+                return;
+            }
+            p
+        }
         None => {
             tracing::warn!("sd_notify: NOTIFY_SOCKET not set");
             return;
         }
     };
-    if let Err(e) = sock.send_to(state.as_bytes(), path) {
+    let pid = std::process::id();
+    let msg = format!("{state}\nMAINPID={pid}");
+    if let Err(e) = sock.send_to(msg.as_bytes(), path) {
         tracing::warn!("sd_notify failed: {e}");
     }
 }
@@ -146,21 +156,21 @@ impl Monitor {
 
     fn run(&mut self) {
         self.print_banner();
-        sd_notify("READY=1\nSTATUS=Monitoring...\nMAINPID=1");
+        sd_notify("READY=1\nSTATUS=Monitoring...");
 
         loop {
             if TERM_RECEIVED.load(Ordering::SeqCst) {
                 println!("\nsema shutting down");
-                sd_notify("STOPPING=1\nSTATUS=Shutting down...\nMAINPID=1");
+                sd_notify("STOPPING=1\nSTATUS=Shutting down...");
                 break;
             }
 
             if HUP_RECEIVED.swap(false, Ordering::SeqCst) {
                 self.reload();
-                sd_notify("RELOADING=1\nSTATUS=Config reloaded\nMAINPID=1");
-                sd_notify("READY=1\nSTATUS=Monitoring...\nMAINPID=1");
+                sd_notify("RELOADING=1\nSTATUS=Config reloaded");
+                sd_notify("READY=1\nSTATUS=Monitoring...");
             } else {
-                sd_notify("WATCHDOG=1\nSTATUS=Monitoring...\nMAINPID=1");
+                sd_notify("WATCHDOG=1\nSTATUS=Monitoring...");
             }
 
             // Refresh system data before running checks
@@ -173,20 +183,34 @@ impl Monitor {
                 cooldown: u64,
                 alert: checkers::Alert,
             }
-            let mut pending: Vec<PendingAlert> = Vec::new();
-            let mut crashed_checkers: Vec<&str> = Vec::new();
 
             let sys = &self.sys;
             let sink = &mut self.sink;
-            for c in &mut self.checkers {
-                let key = c.key();
-                let cooldown = c.cooldown_secs();
+            let checkers = std::mem::take(&mut self.checkers);
 
-                let result = catch_unwind(AssertUnwindSafe(|| c.check(sys)));
-                match result {
+            let mut pending: Vec<PendingAlert> = Vec::new();
+            let mut crashed_checkers: Vec<&str> = Vec::new();
+            let mut keep_checkers: Vec<Box<dyn Checker>> = Vec::new();
+
+            thread::scope(|s| {
+                let mut handles = Vec::with_capacity(checkers.len());
+                for c in checkers {
+                    let key = c.key();
+                    let cooldown = c.cooldown_secs();
+                    handles.push(s.spawn(move || {
+                        let result = catch_unwind(AssertUnwindSafe(|| c.check(sys)));
+                        (c, key, cooldown, result)
+                    }));
+                }
+                for handle in handles {
+                    // All spawned threads have joined once scope exits this block;
+                    // unwrap is safe because catch_unwind inside prevents thread panic.
+                    let (c, key, cooldown, result) = handle.join().unwrap();
+                    match result {
                     Ok(Ok(Some(alert))) => {
                         sink.note_active(key, true);
                         pending.push(PendingAlert { key, cooldown, alert });
+                        keep_checkers.push(c);
                     }
                     Ok(Ok(None)) => {
                         if sink.note_active(key, false) {
@@ -200,10 +224,12 @@ impl Monitor {
                                 },
                             });
                         }
+                        keep_checkers.push(c);
                     }
                     Ok(Err(CheckerError::Io(e))) => {
                         tracing::error!("checker '{key}' I/O error: {e}");
                         crashed_checkers.push(key);
+                        // c dropped — checker removed from rotation
                     }
                     Err(panic) => {
                         let msg = if let Some(s) = panic.as_ref().downcast_ref::<&str>() {
@@ -215,9 +241,12 @@ impl Monitor {
                         };
                         tracing::error!("checker '{key}' panicked: {msg}");
                         crashed_checkers.push(key);
+                        // c dropped — checker removed from rotation
+                    }
                     }
                 }
-            }
+            });
+            self.checkers = keep_checkers;
 
             for k in crashed_checkers {
                 sink.notify(
@@ -234,7 +263,13 @@ impl Monitor {
             // Phase 2: send grouped or individual notifications
             if pending.len() == 1 {
                 let p = &pending[0];
-                sink.notify(p.key, p.cooldown, &p.alert);
+                if p.cooldown == 0 {
+                    // Recovery notification — use separate cooldown tracking to
+                    // prevent oscillation spam (alert → recovery → alert → ...)
+                    sink.notify_recovery(p.key, &p.alert);
+                } else {
+                    sink.notify(p.key, p.cooldown, &p.alert);
+                }
             } else if !pending.is_empty() {
                 let min_cooldown = pending.iter().map(|p| p.cooldown).min().unwrap_or(60);
                 let mut body = String::new();

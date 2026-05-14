@@ -1,5 +1,7 @@
 pub mod battery;
 pub mod cpu;
+pub mod disk;
+pub mod disk_io;
 pub mod memory;
 pub mod network;
 pub mod swap;
@@ -11,36 +13,38 @@ use sysinfo::System;
 use crate::config::Config;
 pub use crate::config::Severity;
 
-/// 检测结果
+/// Check result
 pub struct Alert {
-    #[allow(dead_code)]
     pub severity: Severity,
     pub summary: String,
     pub body: String,
 }
 
-/// 检测器错误
+/// Checker error
 #[derive(Debug, thiserror::Error)]
 pub enum CheckerError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 }
 
-/// 检测器 trait — 每个指标一个实现
-pub trait Checker {
-    /// 指标标识（也用作通知冷却 key）
+/// Checker trait — one implementation per metric
+pub trait Checker: Send {
+    /// Metric identifier (also used as notification cooldown key)
     fn key(&self) -> &'static str;
-    /// 通知冷却秒数
+    /// Notification cooldown in seconds
     fn cooldown_secs(&self) -> u64;
-    /// 正常检测：超阈值返回 Some(Alert)，否则 None
-    fn check(&mut self, sys: &System) -> Result<Option<Alert>, CheckerError>;
-    /// dry-run 一行状态文本
+    /// Check: returns Some(Alert) if threshold exceeded, None otherwise
+    fn check(&self, sys: &System) -> Result<Option<Alert>, CheckerError>;
+    /// Dry-run one-line status text
     fn report(&self, sys: &System) -> String;
 }
 
-/// 从 Config 消费创建启用的检测器（enabled = true 的才会构建）
+/// Consume Config and create enabled checkers (only those with enabled = true)
 pub fn all_checkers(cfg: Config) -> Vec<Box<dyn Checker>> {
     let mut v: Vec<Box<dyn Checker>> = Vec::new();
+    if cfg.disk.enabled {
+        v.push(Box::new(disk::Disk::new(cfg.disk)));
+    }
     if cfg.cpu.enabled {
         v.push(Box::new(cpu::Cpu::new(cfg.cpu)));
     }
@@ -61,6 +65,9 @@ pub fn all_checkers(cfg: Config) -> Vec<Box<dyn Checker>> {
     }
     if cfg.network.enabled {
         v.push(Box::new(network::Network::new(cfg.network)));
+    }
+    if cfg.disk_io.enabled {
+        v.push(Box::new(disk_io::DiskIo::new(cfg.disk_io)));
     }
     v
 }

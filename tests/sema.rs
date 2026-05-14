@@ -14,6 +14,7 @@ fn dry_run_output_contains_all_metrics() {
     assert!(stdout.contains("config:"), "output should show config path");
     assert!(stdout.contains("System state:"), "output should show system state header");
     assert!(stdout.contains("CPU"), "output should show CPU metric");
+    assert!(stdout.contains("Disk"), "output should show Disk metric");
     assert!(stdout.contains("Memory"), "output should show Memory metric");
     assert!(stdout.contains("Swap"), "output should show Swap metric");
     assert!(stdout.contains("Battery"), "output should show Battery metric");
