@@ -93,7 +93,10 @@ mod tests {
 
     #[test]
     fn cooldown_returns_from_config() {
-        let cfg = MetricConfig { cooldown_secs: 200, ..Default::default() };
+        let cfg = MetricConfig {
+            cooldown_secs: 200,
+            ..Default::default()
+        };
         let b = Battery::new(cfg);
         assert_eq!(b.cooldown_secs(), 200);
     }

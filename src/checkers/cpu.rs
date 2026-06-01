@@ -64,7 +64,10 @@ mod tests {
 
     #[test]
     fn cooldown_returns_from_config() {
-        let cfg = MetricConfig { cooldown_secs: 300, ..Default::default() };
+        let cfg = MetricConfig {
+            cooldown_secs: 300,
+            ..Default::default()
+        };
         let c = Cpu::new(cfg);
         assert_eq!(c.cooldown_secs(), 300);
     }

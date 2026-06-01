@@ -57,7 +57,10 @@ mod tests {
 
     #[test]
     fn cooldown_returns_from_config() {
-        let cfg = TimeConfig { enabled: true, cooldown_secs: 120 };
+        let cfg = TimeConfig {
+            enabled: true,
+            cooldown_secs: 120,
+        };
         let t = TimeChecker::new(cfg);
         assert_eq!(t.cooldown_secs(), 120);
     }

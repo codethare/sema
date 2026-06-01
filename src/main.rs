@@ -207,42 +207,42 @@ impl Monitor {
                     // unwrap is safe because catch_unwind inside prevents thread panic.
                     let (c, key, cooldown, result) = handle.join().unwrap();
                     match result {
-                    Ok(Ok(Some(alert))) => {
-                        sink.note_active(key, true);
-                        pending.push(PendingAlert { key, cooldown, alert });
-                        keep_checkers.push(c);
-                    }
-                    Ok(Ok(None)) => {
-                        if sink.note_active(key, false) {
-                            pending.push(PendingAlert {
-                                key,
-                                cooldown: 0,
-                                alert: checkers::Alert {
-                                    severity: Severity::Warning,
-                                    summary: format!("✅ {key} back to normal"),
-                                    body: String::new(),
-                                },
-                            });
+                        Ok(Ok(Some(alert))) => {
+                            sink.note_active(key, true);
+                            pending.push(PendingAlert { key, cooldown, alert });
+                            keep_checkers.push(c);
                         }
-                        keep_checkers.push(c);
-                    }
-                    Ok(Err(CheckerError::Io(e))) => {
-                        tracing::error!("checker '{key}' I/O error: {e}");
-                        crashed_checkers.push(key);
-                        // c dropped — checker removed from rotation
-                    }
-                    Err(panic) => {
-                        let msg = if let Some(s) = panic.as_ref().downcast_ref::<&str>() {
-                            s
-                        } else if let Some(s) = panic.as_ref().downcast_ref::<String>() {
-                            s.as_str()
-                        } else {
-                            "<unknown>"
-                        };
-                        tracing::error!("checker '{key}' panicked: {msg}");
-                        crashed_checkers.push(key);
-                        // c dropped — checker removed from rotation
-                    }
+                        Ok(Ok(None)) => {
+                            if sink.note_active(key, false) {
+                                pending.push(PendingAlert {
+                                    key,
+                                    cooldown: 0,
+                                    alert: checkers::Alert {
+                                        severity: Severity::Warning,
+                                        summary: format!("✅ {key} back to normal"),
+                                        body: String::new(),
+                                    },
+                                });
+                            }
+                            keep_checkers.push(c);
+                        }
+                        Ok(Err(CheckerError::Io(e))) => {
+                            tracing::error!("checker '{key}' I/O error: {e}");
+                            crashed_checkers.push(key);
+                            // c dropped — checker removed from rotation
+                        }
+                        Err(panic) => {
+                            let msg = if let Some(s) = panic.as_ref().downcast_ref::<&str>() {
+                                s
+                            } else if let Some(s) = panic.as_ref().downcast_ref::<String>() {
+                                s.as_str()
+                            } else {
+                                "<unknown>"
+                            };
+                            tracing::error!("checker '{key}' panicked: {msg}");
+                            crashed_checkers.push(key);
+                            // c dropped — checker removed from rotation
+                        }
                     }
                 }
             });

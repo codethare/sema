@@ -26,12 +26,9 @@ impl DiskIo {
 
     fn read_iowait() -> Result<(u64, u64), CheckerError> {
         let content = fs::read_to_string("/proc/stat")?;
-        let cpu_line = content
-            .lines()
-            .next()
-            .ok_or_else(|| CheckerError::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidData, "/proc/stat is empty",
-            )))?;
+        let cpu_line = content.lines().next().ok_or_else(|| {
+            CheckerError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, "/proc/stat is empty"))
+        })?;
         let fields: Vec<&str> = cpu_line.split_whitespace().collect();
         // cpu  user  nice  system  idle  iowait  irq  softirq  steal  guest  guest_nice
         //  0    1     2      3       4      5      6     7        8      9       10
@@ -42,15 +39,12 @@ impl DiskIo {
             )));
         }
         let parse = |i: usize| -> Result<u64, CheckerError> {
-            fields[i].parse().map_err(|e| CheckerError::Io(
-                std::io::Error::new(std::io::ErrorKind::InvalidData, format!("parse field {i}: {e}"))
-            ))
+            fields[i].parse().map_err(|e| {
+                CheckerError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("parse field {i}: {e}")))
+            })
         };
         let iowait = parse(5)?;
-        let total: u64 = fields[1..]
-            .iter()
-            .filter_map(|s| s.parse::<u64>().ok())
-            .sum();
+        let total: u64 = fields[1..].iter().filter_map(|s| s.parse::<u64>().ok()).sum();
         Ok((iowait, total))
     }
 }
@@ -105,10 +99,7 @@ impl Checker for DiskIo {
         Ok(Some(Alert {
             severity: sev,
             summary: format!("{} Disk I/O wait high", sev.emoji()),
-            body: format!(
-                "I/O wait: {pct:.1}% (threshold: {thr}%)",
-                thr = self.cfg.threshold
-            ),
+            body: format!("I/O wait: {pct:.1}% (threshold: {thr}%)", thr = self.cfg.threshold),
         }))
     }
 
@@ -136,7 +127,10 @@ mod tests {
 
     #[test]
     fn cooldown_returns_from_config() {
-        let cfg = MetricConfig { cooldown_secs: 90, ..Default::default() };
+        let cfg = MetricConfig {
+            cooldown_secs: 90,
+            ..Default::default()
+        };
         let d = DiskIo::new(cfg);
         assert_eq!(d.cooldown_secs(), 90);
     }

@@ -88,9 +88,7 @@ impl Checker for Disk {
             let mount = d.mount_point().to_string_lossy().to_string();
             let used_gb = used as f64 / (1024.0 * 1024.0 * 1024.0);
             let total_gb = total as f64 / (1024.0 * 1024.0 * 1024.0);
-            parts.push(format!(
-                "{mount} {usage:.1}% ({used_gb:.1}/{total_gb}GiB)"
-            ));
+            parts.push(format!("{mount} {usage:.1}% ({used_gb:.1}/{total_gb}GiB)"));
         }
         if parts.is_empty() {
             return "  Disk    N/A".into();
@@ -118,7 +116,10 @@ mod tests {
 
     #[test]
     fn cooldown_returns_from_config() {
-        let cfg = MetricConfig { cooldown_secs: 150, ..Default::default() };
+        let cfg = MetricConfig {
+            cooldown_secs: 150,
+            ..Default::default()
+        };
         let d = Disk::new(cfg);
         assert_eq!(d.cooldown_secs(), 150);
     }

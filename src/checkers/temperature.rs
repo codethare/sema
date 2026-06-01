@@ -63,7 +63,9 @@ impl Checker for Temperature {
                 continue;
             }
             let Some(temp) = comp.temperature() else { continue };
-            if temp.is_nan() { continue; }
+            if temp.is_nan() {
+                continue;
+            }
             if temp > self.cfg.threshold as f32 {
                 match &hottest {
                     Some((_, max)) if temp <= *max => {}
@@ -88,7 +90,9 @@ impl Checker for Temperature {
             .filter(|c| Self::is_cpu_sensor(c.label()))
             .filter_map(|c| {
                 let t = c.temperature()?;
-                if t.is_nan() { return None; }
+                if t.is_nan() {
+                    return None;
+                }
                 Some((c.label().to_string(), t))
             })
             .collect();

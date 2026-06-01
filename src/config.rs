@@ -245,8 +245,13 @@ impl Config {
         let content = match std::fs::File::open(&path) {
             Ok(mut file) => {
                 // Reject config files larger than 1 MB to prevent OOM
-                if let Ok(meta) = file.metadata() && meta.len() > MAX_CONFIG_SIZE {
-                    tracing::warn!("config file too large ({} bytes, max {MAX_CONFIG_SIZE}), using defaults", meta.len());
+                if let Ok(meta) = file.metadata()
+                    && meta.len() > MAX_CONFIG_SIZE
+                {
+                    tracing::warn!(
+                        "config file too large ({} bytes, max {MAX_CONFIG_SIZE}), using defaults",
+                        meta.len()
+                    );
                     return Config::default();
                 }
                 let mut content = String::new();
@@ -301,18 +306,12 @@ impl Config {
                 *crit = crit.clamp(0.0, 1_000_000.0);
             }
             if m.cooldown_secs < MIN_COOLDOWN {
-                tracing::warn!(
-                    "network.cooldown_secs {} < {MIN_COOLDOWN}, set to {MIN_COOLDOWN}",
-                    m.cooldown_secs
-                );
+                tracing::warn!("network.cooldown_secs {} < {MIN_COOLDOWN}, set to {MIN_COOLDOWN}", m.cooldown_secs);
                 m.cooldown_secs = MIN_COOLDOWN;
             }
         }
         if self.time.cooldown_secs < MIN_COOLDOWN {
-            tracing::warn!(
-                "time.cooldown_secs {} < {MIN_COOLDOWN}, set to {MIN_COOLDOWN}",
-                self.time.cooldown_secs
-            );
+            tracing::warn!("time.cooldown_secs {} < {MIN_COOLDOWN}, set to {MIN_COOLDOWN}", self.time.cooldown_secs);
             self.time.cooldown_secs = MIN_COOLDOWN;
         }
     }
@@ -329,10 +328,7 @@ impl Config {
             *crit = crit.clamp(lo, hi);
         }
         if m.cooldown_secs < MIN_COOLDOWN {
-            tracing::warn!(
-                "{name}.cooldown_secs {} < {MIN_COOLDOWN}, set to {MIN_COOLDOWN}",
-                m.cooldown_secs
-            );
+            tracing::warn!("{name}.cooldown_secs {} < {MIN_COOLDOWN}, set to {MIN_COOLDOWN}", m.cooldown_secs);
             m.cooldown_secs = MIN_COOLDOWN;
         }
     }
@@ -508,67 +504,103 @@ mod tests {
 
     #[test]
     fn severity_warning_for_normal_value() {
-        let cfg = MetricConfig { threshold: 50.0, critical: None, ..Default::default() };
+        let cfg = MetricConfig {
+            threshold: 50.0,
+            critical: None,
+            ..Default::default()
+        };
         assert_eq!(cfg.severity(30.0, false), Severity::Warning);
     }
 
     #[test]
     fn severity_critical_when_critical_threshold_exceeded() {
-        let cfg = MetricConfig { threshold: 50.0, critical: Some(80.0), ..Default::default() };
+        let cfg = MetricConfig {
+            threshold: 50.0,
+            critical: Some(80.0),
+            ..Default::default()
+        };
         assert_eq!(cfg.severity(90.0, false), Severity::Critical);
     }
 
     #[test]
     fn severity_warning_below_critical_threshold() {
-        let cfg = MetricConfig { threshold: 50.0, critical: Some(80.0), ..Default::default() };
+        let cfg = MetricConfig {
+            threshold: 50.0,
+            critical: Some(80.0),
+            ..Default::default()
+        };
         assert_eq!(cfg.severity(70.0, false), Severity::Warning);
     }
 
     #[test]
     fn severity_inverted_lower_is_more_severe() {
-        let cfg = MetricConfig { threshold: 84.0, critical: Some(20.0), ..Default::default() };
+        let cfg = MetricConfig {
+            threshold: 84.0,
+            critical: Some(20.0),
+            ..Default::default()
+        };
         assert_eq!(cfg.severity(10.0, true), Severity::Critical);
         assert_eq!(cfg.severity(50.0, true), Severity::Warning);
     }
 
     #[test]
     fn severity_no_critical_falls_back_to_warning() {
-        let cfg = MetricConfig { threshold: 50.0, critical: None, ..Default::default() };
+        let cfg = MetricConfig {
+            threshold: 50.0,
+            critical: None,
+            ..Default::default()
+        };
         // Even very high values only get Warning if no critical is set
         assert_eq!(cfg.severity(99.0, false), Severity::Warning);
     }
 
     #[test]
     fn validate_clamps_check_interval() {
-        let mut cfg = Config { check_interval_secs: 9999, ..Config::default() };
+        let mut cfg = Config {
+            check_interval_secs: 9999,
+            ..Config::default()
+        };
         cfg.validate();
         assert_eq!(cfg.check_interval_secs, MAX_INTERVAL);
     }
 
     #[test]
     fn validate_clamps_min_check_interval() {
-        let mut cfg = Config { check_interval_secs: 0, ..Config::default() };
+        let mut cfg = Config {
+            check_interval_secs: 0,
+            ..Config::default()
+        };
         cfg.validate();
         assert_eq!(cfg.check_interval_secs, MIN_INTERVAL);
     }
 
     #[test]
     fn validate_clamps_metric_threshold() {
-        let mut m = MetricConfig { threshold: 999.0, ..Default::default() };
+        let mut m = MetricConfig {
+            threshold: 999.0,
+            ..Default::default()
+        };
         Config::validate_metric("test", &mut m, 0.0, 100.0);
         assert_eq!(m.threshold, 100.0);
     }
 
     #[test]
     fn validate_clamps_critical_threshold() {
-        let mut m = MetricConfig { threshold: 50.0, critical: Some(999.0), ..Default::default() };
+        let mut m = MetricConfig {
+            threshold: 50.0,
+            critical: Some(999.0),
+            ..Default::default()
+        };
         Config::validate_metric("test", &mut m, 0.0, 100.0);
         assert_eq!(m.critical, Some(100.0));
     }
 
     #[test]
     fn validate_clamps_cooldown_below_min() {
-        let mut m = MetricConfig { cooldown_secs: 0, ..Default::default() };
+        let mut m = MetricConfig {
+            cooldown_secs: 0,
+            ..Default::default()
+        };
         Config::validate_metric("test", &mut m, 0.0, 100.0);
         assert_eq!(m.cooldown_secs, MIN_COOLDOWN);
     }

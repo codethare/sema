@@ -76,9 +76,7 @@ pub fn send_notification(summary: &str, body: &str, severity: Severity) -> bool 
         Severity::Critical => Urgency::Critical,
     };
     let mut n = Notification::new();
-    n.appname("sema")
-        .summary(summary)
-        .urgency(urgency);
+    n.appname("sema").summary(summary).urgency(urgency);
     if !body.is_empty() {
         n.body(body);
     }
