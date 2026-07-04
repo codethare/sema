@@ -17,6 +17,9 @@ pub struct Config {
     #[serde(default = "default_check_interval")]
     pub check_interval_secs: u64,
 
+    #[serde(default = "default_recovery_cooldown")]
+    pub recovery_cooldown_secs: u64,
+
     #[serde(default)]
     pub disk: MetricConfig,
 
@@ -74,6 +77,12 @@ pub struct MetricConfig {
     /// Critical alert threshold (optional). Values above this are CRITICAL.
     pub critical: Option<f64>,
     pub cooldown_secs: u64,
+    /// For memory: count cache/buffers as available instead of used.
+    pub use_available: bool,
+    /// For disk: only include mount points matching one of these strings.
+    pub include_mounts: Option<Vec<String>>,
+    /// For disk: exclude mount points matching one of these strings.
+    pub exclude_mounts: Option<Vec<String>>,
 }
 
 impl Default for MetricConfig {
@@ -83,6 +92,9 @@ impl Default for MetricConfig {
             threshold: 50.0,
             critical: None,
             cooldown_secs: 60,
+            use_available: false,
+            include_mounts: None,
+            exclude_mounts: None,
         }
     }
 }
@@ -106,6 +118,7 @@ impl MetricConfig {
 pub struct TimeConfig {
     pub enabled: bool,
     pub cooldown_secs: u64,
+    pub minutes: Vec<u8>,
 }
 
 impl Default for TimeConfig {
@@ -113,6 +126,7 @@ impl Default for TimeConfig {
         Self {
             enabled: true,
             cooldown_secs: 60,
+            minutes: vec![0, 30],
         }
     }
 }
@@ -134,6 +148,10 @@ const fn default_check_interval() -> u64 {
     10
 }
 
+const fn default_recovery_cooldown() -> u64 {
+    60
+}
+
 macro_rules! metric_defaults {
     ($($name:ident: $threshold:expr),* $(,)?) => {
         $(
@@ -143,6 +161,9 @@ macro_rules! metric_defaults {
                     threshold: $threshold,
                     critical: None,
                     cooldown_secs: 60,
+                    use_available: false,
+                    include_mounts: None,
+                    exclude_mounts: None,
                 }
             }
         )*
@@ -162,6 +183,9 @@ pub fn default_disk() -> MetricConfig {
         threshold: 90.0,
         critical: Some(95.0),
         cooldown_secs: 60,
+        use_available: false,
+        include_mounts: None,
+        exclude_mounts: None,
     }
 }
 
@@ -171,6 +195,9 @@ pub fn default_temperature() -> MetricConfig {
         threshold: 80.0,
         critical: Some(95.0),
         cooldown_secs: 60,
+        use_available: false,
+        include_mounts: None,
+        exclude_mounts: None,
     }
 }
 
@@ -180,6 +207,9 @@ pub fn default_disk_io() -> MetricConfig {
         threshold: 30.0,
         critical: Some(80.0),
         cooldown_secs: 60,
+        use_available: false,
+        include_mounts: None,
+        exclude_mounts: None,
     }
 }
 
@@ -211,13 +241,13 @@ impl Default for NetworkConfig {
 }
 
 impl NetworkConfig {
-    pub fn severity(&self, val: f64) -> crate::config::Severity {
+    pub fn severity(&self, val: f64) -> Severity {
         if let Some(crit) = self.critical {
             if val > crit {
-                return crate::config::Severity::Critical;
+                return Severity::Critical;
             }
         }
-        crate::config::Severity::Warning
+        Severity::Warning
     }
 }
 
@@ -234,46 +264,71 @@ impl Config {
         crate::checkers::all_checkers(self)
     }
 
-    pub fn load() -> Self {
-        Self::load_from(None)
+    #[allow(dead_code)]
+    pub fn load_from(path: Option<&std::path::Path>) -> Self {
+        Self::load_from_inner(path, false).unwrap_or_default()
     }
 
-    pub fn load_from(path: Option<&std::path::Path>) -> Self {
+    /// Load config and return an error if the file exists but cannot be read or parsed.
+    /// Used at startup so configuration mistakes are not silently ignored.
+    pub fn load_from_strict(path: Option<&std::path::Path>) -> Result<Self, String> {
+        Self::load_from_inner(path, true)
+    }
+
+    fn load_from_inner(path: Option<&std::path::Path>, strict: bool) -> Result<Self, String> {
         let path = path.map(|p| p.to_path_buf()).unwrap_or_else(config_path);
         // Open the file once and operate on the fd to avoid TOCTOU races
         // between exists()/metadata()/read_to_string() on the path.
-        let content = match std::fs::File::open(&path) {
+        let content = match std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&path)
+        {
             Ok(mut file) => {
                 // Reject config files larger than 1 MB to prevent OOM
                 if let Ok(meta) = file.metadata()
                     && meta.len() > MAX_CONFIG_SIZE
                 {
-                    tracing::warn!(
-                        "config file too large ({} bytes, max {MAX_CONFIG_SIZE}), using defaults",
-                        meta.len()
-                    );
-                    return Config::default();
+                    let msg = format!("config file too large ({} bytes, max {MAX_CONFIG_SIZE})", meta.len());
+                    if strict {
+                        return Err(msg);
+                    }
+                    tracing::warn!("{msg}, using defaults");
+                    return Ok(Config::default());
                 }
                 let mut content = String::new();
                 if let Err(e) = file.read_to_string(&mut content) {
-                    tracing::warn!("cannot read config {path:?}: {e}, using defaults");
-                    return Config::default();
+                    let msg = format!("cannot read config {path:?}: {e}");
+                    if strict {
+                        return Err(msg);
+                    }
+                    tracing::warn!("{msg}, using defaults");
+                    return Ok(Config::default());
                 }
                 content
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Config::default();
+                return Ok(Config::default());
             }
             Err(e) => {
-                tracing::warn!("cannot open config {path:?}: {e}, using defaults");
-                return Config::default();
+                let msg = format!("cannot open config {path:?}: {e}");
+                if strict {
+                    return Err(msg);
+                }
+                tracing::warn!("{msg}, using defaults");
+                return Ok(Config::default());
             }
         };
         match toml::from_str::<ConfigFile>(&content) {
-            Ok(raw) => raw.into(),
+            Ok(raw) => Ok(raw.into()),
             Err(e) => {
-                tracing::warn!("config parse failed: {e}, using defaults");
-                Config::default()
+                let msg = format!("config parse failed: {e}");
+                if strict {
+                    Err(msg)
+                } else {
+                    tracing::warn!("{msg}, using defaults");
+                    Ok(Config::default())
+                }
             }
         }
     }
@@ -286,13 +341,13 @@ impl Config {
             );
             self.check_interval_secs = self.check_interval_secs.clamp(MIN_INTERVAL, MAX_INTERVAL);
         }
-        Self::validate_metric("disk", &mut self.disk, 0.0, 100.0);
-        Self::validate_metric("cpu", &mut self.cpu, 0.0, 100.0);
-        Self::validate_metric("memory", &mut self.memory, 0.0, 100.0);
-        Self::validate_metric("swap", &mut self.swap, 0.0, 100.0);
-        Self::validate_metric("battery", &mut self.battery, 0.0, 100.0);
-        Self::validate_metric("temperature", &mut self.temperature, 0.0, 150.0);
-        Self::validate_metric("disk_io", &mut self.disk_io, 0.0, 100.0);
+        Self::validate_metric("disk", &mut self.disk, 0.0, 100.0, false);
+        Self::validate_metric("cpu", &mut self.cpu, 0.0, 100.0, false);
+        Self::validate_metric("memory", &mut self.memory, 0.0, 100.0, false);
+        Self::validate_metric("swap", &mut self.swap, 0.0, 100.0, false);
+        Self::validate_metric("battery", &mut self.battery, 0.0, 100.0, true);
+        Self::validate_metric("temperature", &mut self.temperature, 0.0, 150.0, false);
+        Self::validate_metric("disk_io", &mut self.disk_io, 0.0, 100.0, false);
         {
             let m = &mut self.network;
             if m.threshold < 0.0 || m.threshold > 1_000_000.0 {
@@ -314,18 +369,36 @@ impl Config {
             tracing::warn!("time.cooldown_secs {} < {MIN_COOLDOWN}, set to {MIN_COOLDOWN}", self.time.cooldown_secs);
             self.time.cooldown_secs = MIN_COOLDOWN;
         }
+        if self.time.minutes.is_empty() {
+            tracing::warn!("time.minutes is empty, restoring default [0, 30]");
+            self.time.minutes = vec![0, 30];
+        }
+        self.time.minutes.retain(|&m| {
+            if m > 59 {
+                tracing::warn!("time.minutes value {m} out of range [0,59], ignored");
+                false
+            } else {
+                true
+            }
+        });
     }
 
-    fn validate_metric(name: &str, m: &mut MetricConfig, lo: f64, hi: f64) {
+    fn validate_metric(name: &str, m: &mut MetricConfig, lo: f64, hi: f64, inverted: bool) {
         if m.threshold < lo || m.threshold > hi {
             tracing::warn!("{name}.threshold {} out of range [{lo},{hi}], clamped", m.threshold);
             m.threshold = m.threshold.clamp(lo, hi);
         }
-        if let Some(crit) = &mut m.critical
-            && (*crit < lo || *crit > hi)
-        {
-            tracing::warn!("{name}.critical {} out of range [{lo},{hi}], clamped", crit);
-            *crit = crit.clamp(lo, hi);
+        if let Some(crit) = &mut m.critical {
+            if *crit < lo || *crit > hi {
+                tracing::warn!("{name}.critical {} out of range [{lo},{hi}], clamped", crit);
+                *crit = crit.clamp(lo, hi);
+            }
+            // Critical must be more severe than threshold; correct illogical ordering.
+            let invalid = if inverted { *crit > m.threshold } else { *crit < m.threshold };
+            if invalid {
+                tracing::warn!("{name}.critical {} is less severe than threshold {}, ignoring critical", crit, m.threshold);
+                m.critical = None;
+            }
         }
         if m.cooldown_secs < MIN_COOLDOWN {
             tracing::warn!("{name}.cooldown_secs {} < {MIN_COOLDOWN}, set to {MIN_COOLDOWN}", m.cooldown_secs);
@@ -338,6 +411,7 @@ impl Default for Config {
     fn default() -> Self {
         let mut cfg = Self {
             check_interval_secs: default_check_interval(),
+            recovery_cooldown_secs: default_recovery_cooldown(),
             disk: default_disk(),
             cpu: default_cpu(),
             memory: default_memory(),
@@ -358,6 +432,7 @@ impl Default for Config {
 #[serde(deny_unknown_fields)]
 struct ConfigFile {
     check_interval_secs: Option<u64>,
+    recovery_cooldown_secs: Option<u64>,
     disk: Option<MetricConfig>,
     cpu: Option<MetricConfig>,
     memory: Option<MetricConfig>,
@@ -374,6 +449,7 @@ impl From<ConfigFile> for Config {
     fn from(raw: ConfigFile) -> Self {
         let mut cfg = Config {
             check_interval_secs: raw.check_interval_secs.unwrap_or_else(default_check_interval),
+            recovery_cooldown_secs: raw.recovery_cooldown_secs.unwrap_or_else(default_recovery_cooldown),
             disk: raw.disk.unwrap_or_else(default_disk),
             cpu: raw.cpu.unwrap_or_else(default_cpu),
             memory: raw.memory.unwrap_or_else(default_memory),
@@ -580,7 +656,7 @@ mod tests {
             threshold: 999.0,
             ..Default::default()
         };
-        Config::validate_metric("test", &mut m, 0.0, 100.0);
+        Config::validate_metric("test", &mut m, 0.0, 100.0, false);
         assert_eq!(m.threshold, 100.0);
     }
 
@@ -591,7 +667,7 @@ mod tests {
             critical: Some(999.0),
             ..Default::default()
         };
-        Config::validate_metric("test", &mut m, 0.0, 100.0);
+        Config::validate_metric("test", &mut m, 0.0, 100.0, false);
         assert_eq!(m.critical, Some(100.0));
     }
 
@@ -601,7 +677,7 @@ mod tests {
             cooldown_secs: 0,
             ..Default::default()
         };
-        Config::validate_metric("test", &mut m, 0.0, 100.0);
+        Config::validate_metric("test", &mut m, 0.0, 100.0, false);
         assert_eq!(m.cooldown_secs, MIN_COOLDOWN);
     }
 

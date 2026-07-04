@@ -1,6 +1,4 @@
-use sysinfo::System;
-
-use super::{Alert, Checker};
+use super::{Alert, Checker, SysSnapshot};
 use crate::config::MetricConfig;
 
 pub struct Cpu {
@@ -22,33 +20,34 @@ impl Checker for Cpu {
         self.cfg.cooldown_secs
     }
 
-    fn check(&self, sys: &System) -> Result<Option<Alert>, super::CheckerError> {
-        let usage = sys.global_cpu_usage() as f64;
+    fn check(&mut self, sys: &SysSnapshot) -> Result<Option<Alert>, super::CheckerError> {
+        let usage = sys.cpu_usage;
         if usage.is_nan() || usage <= self.cfg.threshold {
             return Ok(None);
         }
         let sev = self.cfg.severity(usage, false);
         let idle = 100.0 - usage;
-        let load = System::load_average();
         Ok(Some(Alert {
             severity: sev,
             summary: format!("{} CPU overloaded", sev.emoji()),
             body: format!(
                 "CPU: {usage:.1}%\nIdle: {idle:.1}%\nLoad: {:.2} {:.2} {:.2}",
-                load.one, load.five, load.fifteen
+                sys.load_one, sys.load_five, sys.load_fifteen
             ),
         }))
     }
 
-    fn report(&self, sys: &System) -> String {
-        let usage = sys.global_cpu_usage() as f64;
+    fn report(&self, sys: &SysSnapshot) -> String {
+        let usage = sys.cpu_usage;
         if usage.is_nan() {
             return "  CPU     N/A".into();
         }
-        let load = System::load_average();
         let sev = self.cfg.severity(usage, false);
         let flag = if usage > self.cfg.threshold { sev.emoji() } else { "✓" };
-        format!("  CPU     {:>6.1}%  load: {:.2} {:.2} {:.2}  {flag}", usage, load.one, load.five, load.fifteen)
+        format!(
+            "  CPU     {:>6.1}%  load: {:.2} {:.2} {:.2}  {flag}",
+            usage, sys.load_one, sys.load_five, sys.load_fifteen
+        )
     }
 }
 

@@ -1,24 +1,25 @@
 mod checkers;
 mod config;
+mod log;
 mod sink;
 
-use std::fmt::Write;
+use std::io::{self, Write as IoWrite};
+use std::os::unix::fs::OpenOptionsExt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use clap::{CommandFactory, Parser};
 use clap_complete::{Shell, generate};
 use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
 use tracing_subscriber::EnvFilter;
 
-use checkers::{Checker, CheckerError, Severity};
+use checkers::{Checker, CheckerError, Severity, SysSnapshot};
 use config::Config;
-use sink::{Sink, send_notification};
+use sink::{PendingAlert, Sink, send_notification};
 
 #[derive(Parser)]
 #[command(
@@ -66,26 +67,24 @@ fn handle_sigterm() {
 
 fn sd_notify(state: &str) {
     use std::os::unix::net::UnixDatagram;
-    static SOCK: LazyLock<Option<UnixDatagram>> = LazyLock::new(|| UnixDatagram::unbound().ok());
+
+    // Check NOTIFY_SOCKET first before allocating socket (order optimization)
     static PATH: LazyLock<Option<String>> = LazyLock::new(|| std::env::var("NOTIFY_SOCKET").ok());
+    let path = match PATH.as_ref() {
+        Some(p) => p,
+        None => return, // not running under systemd, no-op
+    };
+    // Only accept abstract sockets (@...) or paths under /run/
+    if !path.starts_with('@') && !path.starts_with("/run/") {
+        tracing::warn!("sd_notify: invalid NOTIFY_SOCKET '{path}', ignoring");
+        return;
+    }
+
+    static SOCK: LazyLock<Option<UnixDatagram>> = LazyLock::new(|| UnixDatagram::unbound().ok());
     let sock = match SOCK.as_ref() {
         Some(s) => s,
         None => {
             tracing::warn!("sd_notify: no UnixDatagram socket available");
-            return;
-        }
-    };
-    let path = match PATH.as_ref() {
-        Some(p) => {
-            // Only accept abstract sockets (@...) or paths under /run/
-            if !p.starts_with('@') && !p.starts_with("/run/") {
-                tracing::warn!("sd_notify: invalid NOTIFY_SOCKET '{p}', ignoring");
-                return;
-            }
-            p
-        }
-        None => {
-            tracing::warn!("sd_notify: NOTIFY_SOCKET not set");
             return;
         }
     };
@@ -102,34 +101,61 @@ struct Monitor {
     checkers: Vec<Box<dyn Checker>>,
     check_interval: Duration,
     config_path: Option<std::path::PathBuf>,
+    checker_failures: std::collections::HashMap<&'static str, u32>,
 }
 
 impl Monitor {
     fn new(cfg: Config, dry_run: bool, config_path: Option<std::path::PathBuf>) -> Self {
         let sys = System::new_with_specifics(
             RefreshKind::nothing()
-                .with_cpu(CpuRefreshKind::everything())
+                .with_cpu(CpuRefreshKind::nothing().with_cpu_usage())
                 .with_memory(MemoryRefreshKind::everything()),
         );
         let check_interval = Duration::from_secs(cfg.check_interval_secs);
         let log_enabled = cfg.log.enabled;
+        let recovery_cooldown_secs = cfg.recovery_cooldown_secs;
         let checkers = cfg.into_checkers();
-        let sink = Sink::new(dry_run, log_enabled);
+        let sink = Sink::new(dry_run, log_enabled, recovery_cooldown_secs);
         Self {
             sys,
             sink,
             checkers,
             check_interval,
             config_path,
+            checker_failures: std::collections::HashMap::new(),
+        }
+    }
+
+    fn sys_snapshot(&self) -> SysSnapshot {
+        let load = System::load_average();
+        SysSnapshot {
+            cpu_usage: self.sys.global_cpu_usage() as f64,
+            mem_used: self.sys.used_memory(),
+            mem_total: self.sys.total_memory(),
+            mem_available: self.sys.available_memory(),
+            swap_used: self.sys.used_swap(),
+            swap_total: self.sys.total_swap(),
+            load_one: load.one,
+            load_five: load.five,
+            load_fifteen: load.fifteen,
         }
     }
 
     fn reload(&mut self) {
-        let cfg = Config::load_from(self.config_path.as_deref());
+        let cfg = match Config::load_from_strict(self.config_path.as_deref()) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                tracing::error!("config reload failed: {e}, keeping current config");
+                return;
+            }
+        };
         let log_enabled = cfg.log.enabled;
+        let recovery_cooldown_secs = cfg.recovery_cooldown_secs;
         self.check_interval = Duration::from_secs(cfg.check_interval_secs);
         self.checkers = cfg.into_checkers();
         self.sink.set_log_enabled(log_enabled);
+        self.sink.set_recovery_cooldown_secs(recovery_cooldown_secs);
+        self.checker_failures.clear();
         tracing::info!("config reloaded ({} checkers)", self.checkers.len());
     }
 
@@ -149,74 +175,79 @@ impl Monitor {
             version = env!("CARGO_PKG_VERSION"),
             mode = mode,
             config_display = config_display,
-            log_path = Sink::log_path_display(),
+            log_path = log::log_path_display(),
             interval = self.check_interval.as_secs(),
         );
     }
 
     fn run(&mut self) {
+        static HAS_SD: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let sd = || *HAS_SD.get_or_init(|| std::env::var("NOTIFY_SOCKET").is_ok());
+
         self.print_banner();
-        sd_notify("READY=1\nSTATUS=Monitoring...");
+        if sd() {
+            sd_notify("READY=1\nSTATUS=Monitoring...");
+        }
 
         loop {
+            let loop_start = Instant::now();
             if TERM_RECEIVED.load(Ordering::SeqCst) {
                 println!("\nsema shutting down");
-                sd_notify("STOPPING=1\nSTATUS=Shutting down...");
+                if sd() {
+                    sd_notify("STOPPING=1\nSTATUS=Shutting down...");
+                }
                 break;
             }
 
             if HUP_RECEIVED.swap(false, Ordering::SeqCst) {
                 self.reload();
-                sd_notify("RELOADING=1\nSTATUS=Config reloaded");
-                sd_notify("READY=1\nSTATUS=Monitoring...");
-            } else {
+                self.print_banner();
+                if sd() {
+                    sd_notify("RELOADING=1\nSTATUS=Config reloaded");
+                }
+                if sd() {
+                    sd_notify("READY=1\nSTATUS=Monitoring...");
+                }
+            } else if sd() {
                 sd_notify("WATCHDOG=1\nSTATUS=Monitoring...");
             }
 
             // Refresh system data before running checks
             self.sys.refresh_cpu_usage();
-            self.sys.refresh_memory();
+            self.sys.refresh_memory_specifics(MemoryRefreshKind::everything());
 
+            let snap = self.sys_snapshot();
             // Phase 1: run all checks, collect alerts
-            struct PendingAlert<'a> {
-                key: &'a str,
-                cooldown: u64,
-                alert: checkers::Alert,
-            }
-
-            let sys = &self.sys;
+            let sys = &snap;
             let sink = &mut self.sink;
+            let failures = &mut self.checker_failures;
             let checkers = std::mem::take(&mut self.checkers);
+            const MAX_CHECKER_FAILURES: u32 = 3;
 
             let mut pending: Vec<PendingAlert> = Vec::new();
             let mut crashed_checkers: Vec<&str> = Vec::new();
             let mut keep_checkers: Vec<Box<dyn Checker>> = Vec::new();
 
-            thread::scope(|s| {
-                let mut handles = Vec::with_capacity(checkers.len());
-                for c in checkers {
-                    let key = c.key();
-                    let cooldown = c.cooldown_secs();
-                    handles.push(s.spawn(move || {
-                        let result = catch_unwind(AssertUnwindSafe(|| c.check(sys)));
-                        (c, key, cooldown, result)
-                    }));
-                }
-                for handle in handles {
-                    // All spawned threads have joined once scope exits this block;
-                    // unwrap is safe because catch_unwind inside prevents thread panic.
-                    let (c, key, cooldown, result) = handle.join().unwrap();
-                    match result {
+            for mut c in checkers {
+                let key = c.key();
+                let cooldown = c.cooldown_secs();
+                // SAFETY: if check() panics, the checker is dropped (not added to
+                // keep_checkers), so no inconsistent state survives the next iteration.
+                let result = catch_unwind(AssertUnwindSafe(|| c.check(sys)));
+                match result {
                         Ok(Ok(Some(alert))) => {
+                            failures.remove(key);
                             sink.note_active(key, true);
-                            pending.push(PendingAlert { key, cooldown, alert });
+                            pending.push(PendingAlert { key, cooldown, recovery: false, alert });
                             keep_checkers.push(c);
                         }
                         Ok(Ok(None)) => {
+                            failures.remove(key);
                             if sink.note_active(key, false) {
                                 pending.push(PendingAlert {
                                     key,
                                     cooldown: 0,
+                                    recovery: true,
                                     alert: checkers::Alert {
                                         severity: Severity::Warning,
                                         summary: format!("✅ {key} back to normal"),
@@ -228,8 +259,23 @@ impl Monitor {
                         }
                         Ok(Err(CheckerError::Io(e))) => {
                             tracing::error!("checker '{key}' I/O error: {e}");
-                            crashed_checkers.push(key);
-                            // c dropped — checker removed from rotation
+                            *failures.entry(key).or_insert(0) += 1;
+                            if failures.get(key).copied().unwrap_or(0) >= MAX_CHECKER_FAILURES {
+                                crashed_checkers.push(key);
+                                failures.remove(key);
+                            } else {
+                                keep_checkers.push(c);
+                            }
+                        }
+                        Ok(Err(CheckerError::InvalidData(e))) => {
+                            tracing::error!("checker '{key}' invalid data: {e}");
+                            *failures.entry(key).or_insert(0) += 1;
+                            if failures.get(key).copied().unwrap_or(0) >= MAX_CHECKER_FAILURES {
+                                crashed_checkers.push(key);
+                                failures.remove(key);
+                            } else {
+                                keep_checkers.push(c);
+                            }
                         }
                         Err(panic) => {
                             let msg = if let Some(s) = panic.as_ref().downcast_ref::<&str>() {
@@ -240,17 +286,19 @@ impl Monitor {
                                 "<unknown>"
                             };
                             tracing::error!("checker '{key}' panicked: {msg}");
+                            failures.remove(key);
                             crashed_checkers.push(key);
-                            // c dropped — checker removed from rotation
                         }
                     }
-                }
-            });
+            }
             self.checkers = keep_checkers;
 
             for k in crashed_checkers {
+                // Leak a stable key so the per-checker crash cooldown survives this loop iteration.
+                // Crashes are rare, so this tiny leak is acceptable.
+                let key: &'static str = Box::leak(format!("checker_crash:{k}").into_boxed_str());
                 sink.notify(
-                    "checker_crash",
+                    key,
                     300,
                     &checkers::Alert {
                         severity: Severity::Critical,
@@ -260,68 +308,110 @@ impl Monitor {
                 );
             }
 
-            // Phase 2: send grouped or individual notifications
-            if pending.len() == 1 {
-                let p = &pending[0];
-                if p.cooldown == 0 {
-                    // Recovery notification — use separate cooldown tracking to
-                    // prevent oscillation spam (alert → recovery → alert → ...)
-                    sink.notify_recovery(p.key, &p.alert);
-                } else {
-                    sink.notify(p.key, p.cooldown, &p.alert);
+            sink.notify_pending(pending);
+
+            // Sleep until next interval in small chunks so SIGTERM/SIGINT can interrupt promptly,
+            // and subtract work time to keep the cadence stable.
+            let elapsed = loop_start.elapsed();
+            if let Some(remaining) = self.check_interval.checked_sub(elapsed) {
+                let deadline = Instant::now() + remaining;
+                while Instant::now() < deadline && !TERM_RECEIVED.load(Ordering::SeqCst) {
+                    sleep(Duration::from_millis(100));
                 }
-            } else if !pending.is_empty() {
-                let min_cooldown = pending.iter().map(|p| p.cooldown).min().unwrap_or(60);
-                let mut body = String::new();
-                for (i, p) in pending.iter().enumerate() {
-                    if i > 0 {
-                        body.push_str(" | ");
-                    }
-                    let _ = write!(body, "{}: {}", p.alert.summary, p.alert.body);
-                }
-                let composite = checkers::Alert {
-                    severity: Severity::Warning,
-                    summary: format!("{} alerts", pending.len()),
-                    body,
-                };
-                sink.notify("group", min_cooldown, &composite);
             }
-            sleep(self.check_interval);
         }
     }
 
     fn dry_run(&mut self) {
         self.print_banner();
         println!("System state:\n");
+        let snap = self.sys_snapshot();
         for c in &self.checkers {
-            println!("{}", c.report(&self.sys));
+            println!("{}", c.report(&snap));
         }
         println!();
     }
 }
 
+struct TraceLog;
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for TraceLog {
+    type Writer = Box<dyn IoWrite + Send>;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        let path = crate::log::trace_log_path();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&path)
+        {
+            Ok(f) => Box::new(f),
+            Err(_) => Box::new(io::sink()),
+        }
+    }
+}
+
+fn init_panic_hook() {
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let msg = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            s
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.as_str()
+        } else {
+            "unknown error"
+        };
+        let location = info.location().map(|l| l.to_string()).unwrap_or_default();
+        eprintln!(
+            "\nsema: internal error — {msg}\n  at {location}\n  Please report: https://github.com/codethare/sema/issues"
+        );
+        prev(info);
+    }));
+}
+
 fn init_tracing() {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")))
-        .with_writer(std::io::stderr)
-        .with_target(false)
-        .without_time()
+    use tracing_subscriber::fmt;
+    use tracing_subscriber::prelude::*;
+
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"));
+
+    let stderr_layer = fmt::layer().with_writer(io::stderr).with_target(false).without_time();
+
+    let file_layer = fmt::layer().with_writer(TraceLog).with_target(true);
+
+    tracing_subscriber::registry()
+        .with(stderr_layer.with_filter(filter.clone()))
+        .with(file_layer.with_filter(filter))
         .init();
 }
 
 fn main() {
     init_tracing();
+    init_panic_hook();
 
     let cli = Cli::parse();
 
-    // Enforce single instance via PID file
-    if !cli.init
-        && !cli.test
-        && let Err(e) = single_instance::SingleInstance::new("sema")
-    {
-        eprintln!("Error: another sema instance is already running ({e})");
-        std::process::exit(1);
-    }
+    let _lock: Option<single_instance::SingleInstance> =
+        if cli.init || cli.test || cli.dry_run || cli.completions.is_some() {
+            None
+        } else {
+            let instance = match single_instance::SingleInstance::new("sema") {
+                Ok(inst) => inst,
+                Err(e) => {
+                    eprintln!("Error: single instance check failed ({e})");
+                    std::process::exit(1);
+                }
+            };
+            if !instance.is_single() {
+                eprintln!("Error: another sema instance is already running");
+                std::process::exit(1);
+            }
+            Some(instance)
+        };
 
     if cli.init {
         let path = cli.config.clone().unwrap_or_else(config::config_path);
@@ -337,16 +427,35 @@ fn main() {
     }
 
     if cli.test {
-        let ok = send_notification(
-            "🔍 sema test notification",
-            "If you can read this, desktop notifications are working correctly.",
-            Severity::Warning,
-        );
-        if ok {
-            println!("Test notification sent successfully.");
-        } else {
-            eprintln!("Error: failed to send test notification. Is a notification daemon running?");
+        if std::env::var("DBUS_SESSION_BUS_ADDRESS").is_err() {
+            eprintln!(
+                "Error: D-Bus session bus not available (DBUS_SESSION_BUS_ADDRESS not set). Is a desktop session running?"
+            );
             std::process::exit(1);
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let ok = send_notification(
+                "🔍 sema test notification",
+                "If you can read this, desktop notifications are working correctly.",
+                Severity::Warning,
+            );
+            let _ = tx.send(ok);
+        });
+        match rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(true) => println!("Test notification sent successfully."),
+            Ok(false) => {
+                eprintln!("Error: notification daemon refused the request.");
+                std::process::exit(1);
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                eprintln!("Error: notification daemon did not respond within 5s.");
+                std::process::exit(1);
+            }
+            Err(_) => {
+                eprintln!("Error: notification thread panicked.");
+                std::process::exit(1);
+            }
         }
         return;
     }
@@ -371,8 +480,15 @@ fn main() {
     let config_path = cli.config;
 
     let cfg = match &config_path {
-        Some(p) => Config::load_from(Some(p)),
-        None => Config::load(),
+        Some(p) => Config::load_from_strict(Some(p)),
+        None => Config::load_from_strict(None),
+    };
+    let cfg = match cfg {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
     };
     let mut monitor = Monitor::new(cfg, dry_run, config_path);
 

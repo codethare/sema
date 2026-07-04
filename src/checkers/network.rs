@@ -1,9 +1,8 @@
-use std::cell::RefCell;
 use std::time::{Duration, Instant};
 
-use sysinfo::{Networks, System};
+use sysinfo::Networks;
 
-use super::{Alert, Checker};
+use super::{Alert, Checker, SysSnapshot};
 use crate::config::NetworkConfig;
 
 struct NetState {
@@ -14,20 +13,20 @@ struct NetState {
 
 pub struct Network {
     cfg: NetworkConfig,
-    networks: RefCell<Networks>,
-    state: RefCell<NetState>,
+    networks: Networks,
+    state: NetState,
 }
 
 impl Network {
     pub fn new(cfg: NetworkConfig) -> Self {
         Self {
             cfg,
-            networks: RefCell::new(Networks::new_with_refreshed_list()),
-            state: RefCell::new(NetState {
+            networks: Networks::new_with_refreshed_list(),
+            state: NetState {
                 prev_rx: 0,
                 prev_tx: 0,
                 prev_time: None,
-            }),
+            },
         }
     }
 }
@@ -41,11 +40,11 @@ impl Checker for Network {
         self.cfg.cooldown_secs
     }
 
-    fn check(&self, _sys: &System) -> Result<Option<Alert>, super::CheckerError> {
-        self.networks.borrow_mut().refresh(false);
+    fn check(&mut self, _sys: &SysSnapshot) -> Result<Option<Alert>, super::CheckerError> {
+        self.networks.refresh(false);
         let mut total_rx = 0u64;
         let mut total_tx = 0u64;
-        for (_name, data) in self.networks.borrow().iter() {
+        for (_name, data) in self.networks.iter() {
             if self.cfg.exclude_loopback && _name == "lo" {
                 continue;
             }
@@ -59,23 +58,22 @@ impl Checker for Network {
         }
 
         let now = Instant::now();
-        let mut state = self.state.borrow_mut();
-        let elapsed = match state.prev_time {
+        let prev_time = self.state.prev_time;
+        let elapsed = match prev_time {
             Some(t) => now.checked_duration_since(t).unwrap_or(Duration::ZERO),
             None => {
-                state.prev_rx = total_rx;
-                state.prev_tx = total_tx;
-                state.prev_time = Some(now);
+                self.state.prev_rx = total_rx;
+                self.state.prev_tx = total_tx;
+                self.state.prev_time = Some(now);
                 return Ok(None);
             }
         };
 
-        let rx_delta = total_rx.saturating_sub(state.prev_rx);
-        let tx_delta = total_tx.saturating_sub(state.prev_tx);
-        state.prev_rx = total_rx;
-        state.prev_tx = total_tx;
-        state.prev_time = Some(now);
-        drop(state);
+        let rx_delta = total_rx.saturating_sub(self.state.prev_rx);
+        let tx_delta = total_tx.saturating_sub(self.state.prev_tx);
+        self.state.prev_rx = total_rx;
+        self.state.prev_tx = total_tx;
+        self.state.prev_time = Some(now);
 
         let secs = elapsed.as_secs_f64().max(0.001);
         let rx_mbps = rx_delta as f64 / secs / (1024.0 * 1024.0);
@@ -93,13 +91,12 @@ impl Checker for Network {
         }))
     }
 
-    fn report(&self, _sys: &System) -> String {
-        let networks = self.networks.borrow();
-        if networks.iter().count() == 0 {
+    fn report(&self, _sys: &SysSnapshot) -> String {
+        if self.networks.iter().count() == 0 {
             return "  Network N/A".into();
         }
         let mut parts: Vec<String> = Vec::new();
-        for (name, data) in networks.iter() {
+        for (name, data) in self.networks.iter() {
             let rx = data.total_received();
             let tx = data.total_transmitted();
             parts.push(format!("{name} ↓{} ↑{}", fmt_bytes(rx as f64), fmt_bytes(tx as f64)));

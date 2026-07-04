@@ -1,6 +1,4 @@
-use sysinfo::System;
-
-use super::{Alert, Checker};
+use super::{Alert, Checker, SysSnapshot};
 use crate::config::MetricConfig;
 
 pub struct Swap {
@@ -22,12 +20,12 @@ impl Checker for Swap {
         self.cfg.cooldown_secs
     }
 
-    fn check(&self, sys: &System) -> Result<Option<Alert>, super::CheckerError> {
-        let total = sys.total_swap();
+    fn check(&mut self, sys: &SysSnapshot) -> Result<Option<Alert>, super::CheckerError> {
+        let total = sys.swap_total;
         if total == 0 {
             return Ok(None);
         }
-        let used = sys.used_swap();
+        let used = sys.swap_used;
         let usage = used as f64 / total as f64 * 100.0;
         if usage <= self.cfg.threshold {
             return Ok(None);
@@ -45,12 +43,12 @@ impl Checker for Swap {
         }))
     }
 
-    fn report(&self, sys: &System) -> String {
-        let total = sys.total_swap();
+    fn report(&self, sys: &SysSnapshot) -> String {
+        let total = sys.swap_total;
         if total == 0 {
             return format!("  Swap    {:>6}    threshold: {:>5.1}%  -  (disabled)", "N/A", self.cfg.threshold);
         }
-        let used = sys.used_swap();
+        let used = sys.swap_used;
         let usage = used as f64 / total as f64 * 100.0;
         let used_mb = used / (1024 * 1024);
         let total_mb = total / (1024 * 1024);

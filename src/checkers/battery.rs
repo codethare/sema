@@ -1,42 +1,78 @@
 use std::fs;
+use std::path::PathBuf;
 
-use sysinfo::System;
-
-use super::{Alert, Checker};
+use super::{Alert, Checker, SysSnapshot};
 use crate::config::MetricConfig;
 
 pub struct Battery {
     cfg: MetricConfig,
+    paths: Vec<BatteryPath>,
+}
+
+struct BatteryPath {
+    capacity: PathBuf,
+    status: PathBuf,
 }
 
 impl Battery {
     pub fn new(cfg: MetricConfig) -> Self {
-        Self { cfg }
-    }
-
-    fn list_batteries() -> Vec<String> {
-        match fs::read_dir("/sys/class/power_supply") {
-            Ok(entries) => entries
-                .filter_map(|e| e.ok())
-                .filter(|e| e.file_name().to_string_lossy().contains("BAT"))
-                .map(|e| e.path().join("capacity"))
-                .filter(|p| p.exists())
-                .map(|p| p.to_string_lossy().to_string())
-                .collect(),
-            Err(_) => Vec::new(),
+        Self {
+            cfg,
+            paths: Self::list_batteries(),
         }
     }
 
-    fn read_capacity() -> Option<u16> {
+    fn list_batteries() -> Vec<BatteryPath> {
         #[cfg(target_os = "linux")]
         {
-            Self::list_batteries().iter().find_map(|path| {
-                let content = fs::read_to_string(path).ok()?;
-                content.trim().parse::<u16>().ok()
-            })
+            match fs::read_dir("/sys/class/power_supply") {
+                Ok(entries) => entries
+                    .filter_map(|e| e.ok())
+                    .filter_map(|e| {
+                        let dir = e.path();
+                        let type_path = dir.join("type");
+                        let type_content = fs::read_to_string(&type_path).ok()?;
+                        if type_content.trim() != "Battery" {
+                            return None;
+                        }
+                        let capacity = dir.join("capacity");
+                        if !capacity.exists() {
+                            return None;
+                        }
+                        Some(BatteryPath {
+                            capacity,
+                            status: dir.join("status"),
+                        })
+                    })
+                    .collect(),
+                Err(_) => Vec::new(),
+            }
         }
         #[cfg(not(target_os = "linux"))]
-        None
+        Vec::new()
+    }
+
+    fn is_charging_or_full(status_path: &PathBuf) -> Option<bool> {
+        let content = fs::read_to_string(status_path).ok()?;
+        let s = content.trim();
+        Some(s == "Charging" || s == "Full")
+    }
+
+    fn read_capacity(&self) -> Option<u16> {
+        self.paths.iter().find_map(|bp| {
+            if Self::is_charging_or_full(&bp.status).unwrap_or(false) {
+                return None;
+            }
+            let content = fs::read_to_string(&bp.capacity).ok()?;
+            content.trim().parse::<u16>().ok()
+        })
+    }
+
+    fn read_capacity_for_report(&self) -> Option<u16> {
+        self.paths.iter().find_map(|bp| {
+            let content = fs::read_to_string(&bp.capacity).ok()?;
+            content.trim().parse::<u16>().ok()
+        })
     }
 }
 
@@ -49,8 +85,8 @@ impl Checker for Battery {
         self.cfg.cooldown_secs
     }
 
-    fn check(&self, _sys: &System) -> Result<Option<Alert>, super::CheckerError> {
-        let capacity = match Self::read_capacity() {
+    fn check(&mut self, _sys: &SysSnapshot) -> Result<Option<Alert>, super::CheckerError> {
+        let capacity = match self.read_capacity() {
             Some(c) => c,
             None => return Ok(None),
         };
@@ -65,8 +101,8 @@ impl Checker for Battery {
         }))
     }
 
-    fn report(&self, _sys: &System) -> String {
-        match Self::read_capacity() {
+    fn report(&self, _sys: &SysSnapshot) -> String {
+        match self.read_capacity_for_report() {
             Some(cap) => {
                 let sev = self.cfg.severity(cap as f64, true);
                 let flag = if (cap as f64) < self.cfg.threshold {
@@ -104,9 +140,19 @@ mod tests {
     #[test]
     fn check_returns_none_when_no_batteries_found() {
         // On systems without batteries, check returns Ok(None)
-        let b = Battery::new(MetricConfig::default());
-        let sys = System::new();
-        let result = b.check(&sys).unwrap();
+        let mut b = Battery::new(MetricConfig::default());
+        let snap = SysSnapshot {
+            cpu_usage: 0.0,
+            mem_used: 0,
+            mem_total: 0,
+            mem_available: 0,
+            swap_used: 0,
+            swap_total: 0,
+            load_one: 0.0,
+            load_five: 0.0,
+            load_fifteen: 0.0,
+        };
+        let result = b.check(&snap).unwrap();
         assert!(result.is_none());
     }
 

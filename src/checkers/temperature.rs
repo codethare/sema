@@ -1,47 +1,54 @@
-use std::cell::RefCell;
+use sysinfo::Components;
 
-use sysinfo::{Components, System};
-
-use super::{Alert, Checker};
+use super::{Alert, Checker, SysSnapshot};
 use crate::config::MetricConfig;
 
 pub struct Temperature {
     cfg: MetricConfig,
-    components: RefCell<Components>,
+    components: Components,
 }
 
 impl Temperature {
     pub fn new(cfg: MetricConfig) -> Self {
         Self {
             cfg,
-            components: RefCell::new(Components::new_with_refreshed_list()),
+            components: Components::new_with_refreshed_list(),
         }
     }
 
     fn is_cpu_sensor(label: &str) -> bool {
-        let l = label.to_lowercase();
         // On non-Linux, include all components (no sysfs label filtering)
         if cfg!(not(target_os = "linux")) {
             return true;
         }
+        // sysfs thermal labels are ASCII; avoid allocating a lowercase String.
+        fn contains_ignore_case(haystack: &str, needle: &str) -> bool {
+            if needle.len() > haystack.len() {
+                return false;
+            }
+            haystack
+                .as_bytes()
+                .windows(needle.len())
+                .any(|w| w.eq_ignore_ascii_case(needle.as_bytes()))
+        }
         // Exclude GPU/NVMe/disk sensors
-        if l.contains("gpu")
-            || l.contains("nvidia")
-            || l.contains("amdgpu")
-            || l.contains("nvme")
-            || l.contains("ssd")
-            || l.contains("hdd")
+        if contains_ignore_case(label, "gpu")
+            || contains_ignore_case(label, "nvidia")
+            || contains_ignore_case(label, "amdgpu")
+            || contains_ignore_case(label, "nvme")
+            || contains_ignore_case(label, "ssd")
+            || contains_ignore_case(label, "hdd")
         {
             return false;
         }
         // CPU sensors typically have these in their labels
-        l.contains("cpu")
-            || l.contains("core")
-            || l.contains("package")
-            || l.contains("tctl")
-            || l.contains("tdie")
-            || l.contains("ccd")
-            || l.contains("soc")
+        contains_ignore_case(label, "cpu")
+            || contains_ignore_case(label, "core")
+            || contains_ignore_case(label, "package")
+            || contains_ignore_case(label, "tctl")
+            || contains_ignore_case(label, "tdie")
+            || contains_ignore_case(label, "ccd")
+            || contains_ignore_case(label, "soc")
     }
 }
 
@@ -54,11 +61,10 @@ impl Checker for Temperature {
         self.cfg.cooldown_secs
     }
 
-    fn check(&self, _sys: &System) -> Result<Option<Alert>, super::CheckerError> {
-        self.components.borrow_mut().refresh(false);
-        let components = self.components.borrow();
+    fn check(&mut self, _sys: &SysSnapshot) -> Result<Option<Alert>, super::CheckerError> {
+        self.components.refresh(false);
         let mut hottest: Option<(String, f32)> = None;
-        for comp in components.iter() {
+        for comp in self.components.iter() {
             if !Self::is_cpu_sensor(comp.label()) {
                 continue;
             }
@@ -83,9 +89,8 @@ impl Checker for Temperature {
         }))
     }
 
-    fn report(&self, _sys: &System) -> String {
-        let components = self.components.borrow();
-        let temps: Vec<(String, f32)> = components
+    fn report(&self, _sys: &SysSnapshot) -> String {
+        let temps: Vec<(String, f32)> = self.components
             .iter()
             .filter(|c| Self::is_cpu_sensor(c.label()))
             .filter_map(|c| {

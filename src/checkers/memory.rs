@@ -1,6 +1,4 @@
-use sysinfo::System;
-
-use super::{Alert, Checker};
+use super::{Alert, Checker, SysSnapshot};
 use crate::config::MetricConfig;
 
 pub struct Memory {
@@ -22,19 +20,22 @@ impl Checker for Memory {
         self.cfg.cooldown_secs
     }
 
-    fn check(&self, sys: &System) -> Result<Option<Alert>, super::CheckerError> {
-        let total = sys.total_memory();
+    fn check(&mut self, sys: &SysSnapshot) -> Result<Option<Alert>, super::CheckerError> {
+        let total = sys.mem_total;
         if total == 0 {
             return Ok(None);
         }
-        let used = sys.used_memory();
-        let usage = used as f64 / total as f64 * 100.0;
+        let usage = if self.cfg.use_available {
+            (total.saturating_sub(sys.mem_available)) as f64 / total as f64 * 100.0
+        } else {
+            sys.mem_used as f64 / total as f64 * 100.0
+        };
         if usage <= self.cfg.threshold {
             return Ok(None);
         }
         let sev = self.cfg.severity(usage, false);
         let total_mb = total / (1024 * 1024);
-        let avail_mb = sys.available_memory() / (1024 * 1024);
+        let avail_mb = sys.mem_available / (1024 * 1024);
         let body = format!("Memory: {usage:.1}%\nAvailable: {avail_mb}MB / {total_mb}MB");
         Ok(Some(Alert {
             severity: sev,
@@ -43,12 +44,16 @@ impl Checker for Memory {
         }))
     }
 
-    fn report(&self, sys: &System) -> String {
-        let total = sys.total_memory();
+    fn report(&self, sys: &SysSnapshot) -> String {
+        let total = sys.mem_total;
         if total == 0 {
             return "  Memory    N/A  threshold: N/A".into();
         }
-        let used = sys.used_memory();
+        let used = if self.cfg.use_available {
+            total.saturating_sub(sys.mem_available)
+        } else {
+            sys.mem_used
+        };
         let usage = used as f64 / total as f64 * 100.0;
         let used_mb = used / (1024 * 1024);
         let total_mb = total / (1024 * 1024);

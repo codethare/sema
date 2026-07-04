@@ -1,41 +1,63 @@
-use std::cell::RefCell;
+use sysinfo::Disks;
 
-use sysinfo::{Disks, System};
-
-use super::{Alert, Checker};
+use super::{Alert, Checker, SysSnapshot};
 use crate::config::MetricConfig;
 
 pub struct Disk {
     cfg: MetricConfig,
-    disks: RefCell<Disks>,
+    disks: Disks,
 }
 
 impl Disk {
     pub fn new(cfg: MetricConfig) -> Self {
         Self {
             cfg,
-            disks: RefCell::new(Disks::new_with_refreshed_list()),
+            disks: Disks::new_with_refreshed_list(),
         }
     }
 
-    fn max_usage(disks: &Disks) -> Option<(String, u64, u64)> {
-        let mut max: Option<(String, u64, u64)> = None;
+    fn is_real_mount(d: &sysinfo::Disk) -> bool {
+        // Filter out file-level bind mounts and stale entries; only real directory mounts count.
+        d.mount_point().is_dir()
+    }
+
+    fn mount_allowed(&self, mount: &str) -> bool {
+        if let Some(exclude) = &self.cfg.exclude_mounts {
+            if exclude.iter().any(|p| mount.starts_with(p)) {
+                return false;
+            }
+        }
+        if let Some(include) = &self.cfg.include_mounts {
+            return include.iter().any(|p| mount.starts_with(p));
+        }
+        true
+    }
+
+    fn max_usage(&self, disks: &Disks) -> Option<(String, u64, u64)> {
+        let mut max: Option<(String, u64, u64, f64)> = None;
         for d in disks.iter() {
+            if !Self::is_real_mount(d) {
+                continue;
+            }
+            let mount = d.mount_point().to_string_lossy().to_string();
+            if !self.mount_allowed(&mount) {
+                continue;
+            }
             let total = d.total_space();
             if total == 0 {
                 continue;
             }
             let avail = d.available_space();
             let used = total.saturating_sub(avail);
+            let usage = used as f64 / total as f64;
             match &max {
-                Some((_, _, existing_used)) if used <= *existing_used => {}
+                Some((_, _, _, existing_usage)) if usage <= *existing_usage => {}
                 _ => {
-                    let mount = d.mount_point().to_string_lossy().to_string();
-                    max = Some((mount, used, total));
+                    max = Some((mount, used, total, usage));
                 }
             }
         }
-        max
+        max.map(|(mount, used, total, _)| (mount, used, total))
     }
 }
 
@@ -48,10 +70,9 @@ impl Checker for Disk {
         self.cfg.cooldown_secs
     }
 
-    fn check(&self, _sys: &System) -> Result<Option<Alert>, super::CheckerError> {
-        let mut disks = self.disks.borrow_mut();
-        disks.refresh(false);
-        let Some((mount, used, total)) = Self::max_usage(&disks) else {
+    fn check(&mut self, _sys: &SysSnapshot) -> Result<Option<Alert>, super::CheckerError> {
+        self.disks.refresh(false);
+        let Some((mount, used, total)) = self.max_usage(&self.disks) else {
             return Ok(None);
         };
         let usage = used as f64 / total as f64 * 100.0;
@@ -71,21 +92,31 @@ impl Checker for Disk {
         }))
     }
 
-    fn report(&self, _sys: &System) -> String {
-        let disks = self.disks.borrow();
-        if disks.iter().count() == 0 {
+    fn report(&self, _sys: &SysSnapshot) -> String {
+        if self.disks.iter().count() == 0 {
             return "  Disk    N/A".into();
         }
+        let mut seen: std::collections::HashSet<(u64, u64)> = std::collections::HashSet::new();
         let mut parts: Vec<String> = Vec::new();
-        for d in disks.iter() {
+        for d in self.disks.iter() {
+            if !Self::is_real_mount(d) {
+                continue;
+            }
+            let mount = d.mount_point().to_string_lossy().to_string();
+            if !self.mount_allowed(&mount) {
+                continue;
+            }
             let total = d.total_space();
             if total == 0 {
                 continue;
             }
             let avail = d.available_space();
             let used = total.saturating_sub(avail);
+            // Deduplicate bind mounts of the same filesystem by (total, available).
+            if !seen.insert((total, avail)) {
+                continue;
+            }
             let usage = used as f64 / total as f64 * 100.0;
-            let mount = d.mount_point().to_string_lossy().to_string();
             let used_gb = used as f64 / (1024.0 * 1024.0 * 1024.0);
             let total_gb = total as f64 / (1024.0 * 1024.0 * 1024.0);
             parts.push(format!("{mount} {usage:.1}% ({used_gb:.1}/{total_gb}GiB)"));
@@ -93,13 +124,12 @@ impl Checker for Disk {
         if parts.is_empty() {
             return "  Disk    N/A".into();
         }
-        let sev = self.cfg.severity(
-            Self::max_usage(&disks)
-                .map(|(_, u, t)| u as f64 / t as f64 * 100.0)
-                .unwrap_or(0.0),
-            false,
-        );
-        let flag = sev.emoji();
+        let max_usage = self
+            .max_usage(&self.disks)
+            .map(|(_, u, t)| u as f64 / t as f64 * 100.0)
+            .unwrap_or(0.0);
+        let sev = self.cfg.severity(max_usage, false);
+        let flag = if max_usage > self.cfg.threshold { sev.emoji() } else { "✓" };
         format!("  Disk    {flag}  [{}]", parts.join("  "))
     }
 }

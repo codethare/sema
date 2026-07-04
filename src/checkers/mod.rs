@@ -8,10 +8,41 @@ pub mod swap;
 pub mod temperature;
 pub mod time;
 
-use sysinfo::System;
+use std::fmt;
 
 use crate::config::Config;
 pub use crate::config::Severity;
+
+/// Snapshot of sysinfo data needed by checkers
+pub struct SysSnapshot {
+    pub cpu_usage: f64,
+    pub mem_used: u64,
+    pub mem_total: u64,
+    pub mem_available: u64,
+    pub swap_used: u64,
+    pub swap_total: u64,
+    pub load_one: f64,
+    pub load_five: f64,
+    pub load_fifteen: f64,
+}
+
+impl fmt::Display for SysSnapshot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "CPU: {:.1}% | Mem: {:.0}% | Load: {:.2} {:.2} {:.2}",
+            self.cpu_usage,
+            if self.mem_total > 0 {
+                self.mem_used as f64 / self.mem_total as f64 * 100.0
+            } else {
+                0.0
+            },
+            self.load_one,
+            self.load_five,
+            self.load_fifteen,
+        )
+    }
+}
 
 /// Check result
 pub struct Alert {
@@ -25,6 +56,8 @@ pub struct Alert {
 pub enum CheckerError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("invalid data: {0}")]
+    InvalidData(String),
 }
 
 /// Checker trait — one implementation per metric
@@ -34,9 +67,9 @@ pub trait Checker: Send {
     /// Notification cooldown in seconds
     fn cooldown_secs(&self) -> u64;
     /// Check: returns Some(Alert) if threshold exceeded, None otherwise
-    fn check(&self, sys: &System) -> Result<Option<Alert>, CheckerError>;
+    fn check(&mut self, sys: &SysSnapshot) -> Result<Option<Alert>, CheckerError>;
     /// Dry-run one-line status text
-    fn report(&self, sys: &System) -> String;
+    fn report(&self, sys: &SysSnapshot) -> String;
 }
 
 /// Consume Config and create enabled checkers (only those with enabled = true)
