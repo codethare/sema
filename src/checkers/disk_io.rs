@@ -34,15 +34,12 @@ impl DiskIo {
         // cpu  user  nice  system  idle  iowait  irq  softirq  steal  guest  guest_nice
         //  0    1     2      3       4      5      6     7        8      9       10
         if fields.len() < 6 || fields[0] != "cpu" {
-            return Err(CheckerError::InvalidData(format!(
-                "unexpected /proc/stat format: '{}'",
-                cpu_line.trim_end()
-            )));
+            return Err(CheckerError::InvalidData(format!("unexpected /proc/stat format: '{}'", cpu_line.trim_end())));
         }
         let parse = |i: usize| -> Result<u64, CheckerError> {
-            fields[i].parse().map_err(|e| {
-                CheckerError::InvalidData(format!("parse field {i}: {e}"))
-            })
+            fields[i]
+                .parse()
+                .map_err(|e| CheckerError::InvalidData(format!("parse field {i}: {e}")))
         };
         let iowait = parse(5)?;
         let total: u64 = fields[1..].iter().filter_map(|s| s.parse::<u64>().ok()).sum();

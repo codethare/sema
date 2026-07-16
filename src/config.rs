@@ -145,7 +145,7 @@ impl Default for LogConfig {
 }
 
 const fn default_check_interval() -> u64 {
-    10
+    30
 }
 
 const fn default_recovery_cooldown() -> u64 {
@@ -341,6 +341,13 @@ impl Config {
             );
             self.check_interval_secs = self.check_interval_secs.clamp(MIN_INTERVAL, MAX_INTERVAL);
         }
+        if self.recovery_cooldown_secs < MIN_COOLDOWN {
+            tracing::warn!(
+                "recovery_cooldown_secs {} < {MIN_COOLDOWN}, set to {MIN_COOLDOWN}",
+                self.recovery_cooldown_secs
+            );
+            self.recovery_cooldown_secs = MIN_COOLDOWN;
+        }
         Self::validate_metric("disk", &mut self.disk, 0.0, 100.0, false);
         Self::validate_metric("cpu", &mut self.cpu, 0.0, 100.0, false);
         Self::validate_metric("memory", &mut self.memory, 0.0, 100.0, false);
@@ -381,6 +388,12 @@ impl Config {
                 true
             }
         });
+        // Deduplicate and cap at 60 (only 60 distinct minute values exist).
+        self.time.minutes.sort();
+        self.time.minutes.dedup();
+        if self.time.minutes.len() > 60 {
+            self.time.minutes.truncate(60);
+        }
     }
 
     fn validate_metric(name: &str, m: &mut MetricConfig, lo: f64, hi: f64, inverted: bool) {
@@ -394,9 +407,17 @@ impl Config {
                 *crit = crit.clamp(lo, hi);
             }
             // Critical must be more severe than threshold; correct illogical ordering.
-            let invalid = if inverted { *crit > m.threshold } else { *crit < m.threshold };
+            let invalid = if inverted {
+                *crit > m.threshold
+            } else {
+                *crit < m.threshold
+            };
             if invalid {
-                tracing::warn!("{name}.critical {} is less severe than threshold {}, ignoring critical", crit, m.threshold);
+                tracing::warn!(
+                    "{name}.critical {} is less severe than threshold {}, ignoring critical",
+                    crit,
+                    m.threshold
+                );
                 m.critical = None;
             }
         }
@@ -684,7 +705,7 @@ mod tests {
     #[test]
     fn config_default_values() {
         let cfg = Config::default();
-        assert_eq!(cfg.check_interval_secs, 10);
+        assert_eq!(cfg.check_interval_secs, 30);
         assert!(cfg.cpu.enabled);
         assert_eq!(cfg.cpu.threshold, 50.0);
         assert_eq!(cfg.cpu.cooldown_secs, 60);

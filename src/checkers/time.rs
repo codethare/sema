@@ -10,10 +10,7 @@ pub struct TimeChecker {
 
 impl TimeChecker {
     pub fn new(cfg: TimeConfig) -> Self {
-        Self {
-            cfg,
-            last_fired: None,
-        }
+        Self { cfg, last_fired: None }
     }
 }
 
@@ -51,7 +48,12 @@ impl Checker for TimeChecker {
         let is_time = self.cfg.minutes.contains(&minute);
         let status = if is_time { "will trigger" } else { "—" };
         let minutes_label = if self.cfg.minutes.len() <= 4 {
-            self.cfg.minutes.iter().map(|m| format!(":{m:02}")).collect::<Vec<_>>().join(", ")
+            self.cfg
+                .minutes
+                .iter()
+                .map(|m| format!(":{m:02}"))
+                .collect::<Vec<_>>()
+                .join(", ")
         } else {
             format!("{} slots", self.cfg.minutes.len())
         };

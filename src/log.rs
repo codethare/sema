@@ -10,7 +10,11 @@ use chrono::Local;
 
 const MAX_LOG_SIZE: u64 = 5 * 1024 * 1024; // 5 MB
 
+// ponytail: single-threaded callers (only main loop calls log::write).
+// Mutex kept for static storage compat (RefCell is !Sync); never
+// contended, overhead negligible.
 static LOG_FILE: Mutex<Option<File>> = Mutex::new(None);
+// ponytail: same rationale as LOG_FILE.
 static TRACE_FILE: Mutex<Option<File>> = Mutex::new(None);
 
 fn data_dir() -> PathBuf {

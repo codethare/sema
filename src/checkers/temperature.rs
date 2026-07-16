@@ -41,14 +41,10 @@ impl Temperature {
         {
             return false;
         }
-        // CPU sensors typically have these in their labels
-        contains_ignore_case(label, "cpu")
-            || contains_ignore_case(label, "core")
-            || contains_ignore_case(label, "package")
-            || contains_ignore_case(label, "tctl")
-            || contains_ignore_case(label, "tdie")
-            || contains_ignore_case(label, "ccd")
-            || contains_ignore_case(label, "soc")
+        // ponytail: blacklist-only — accept any non-excluded sensor.
+        // Catches sensors like acpi-thermal, x86_pkg_temp, etc. that
+        // don't match CPU label patterns but are still worth monitoring.
+        true
     }
 }
 
@@ -90,7 +86,8 @@ impl Checker for Temperature {
     }
 
     fn report(&self, _sys: &SysSnapshot) -> String {
-        let temps: Vec<(String, f32)> = self.components
+        let temps: Vec<(String, f32)> = self
+            .components
             .iter()
             .filter(|c| Self::is_cpu_sensor(c.label()))
             .filter_map(|c| {

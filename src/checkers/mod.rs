@@ -26,6 +26,19 @@ pub struct SysSnapshot {
     pub load_fifteen: f64,
 }
 
+/// Generate a visual progress bar using block characters.
+/// `percent` is clamped to 0..=100; `width` is the total number of cells.
+pub(crate) fn progress_bar(percent: f64, width: usize) -> String {
+    let pct = percent.clamp(0.0, 100.0);
+    let filled = if width == 0 {
+        0
+    } else {
+        ((pct / 100.0) * width as f64).round() as usize
+    };
+    let empty = width.saturating_sub(filled);
+    format!("{}{}", "▰".repeat(filled), "▱".repeat(empty))
+}
+
 impl fmt::Display for SysSnapshot {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -74,7 +87,7 @@ pub trait Checker: Send {
 
 /// Consume Config and create enabled checkers (only those with enabled = true)
 pub fn all_checkers(cfg: Config) -> Vec<Box<dyn Checker>> {
-    let mut v: Vec<Box<dyn Checker>> = Vec::new();
+    let mut v: Vec<Box<dyn Checker>> = Vec::with_capacity(9);
     if cfg.disk.enabled {
         v.push(Box::new(disk::Disk::new(cfg.disk)));
     }
@@ -103,4 +116,18 @@ pub fn all_checkers(cfg: Config) -> Vec<Box<dyn Checker>> {
         v.push(Box::new(disk_io::DiskIo::new(cfg.disk_io)));
     }
     v
+}
+
+#[cfg(test)]
+mod tests {
+    use super::progress_bar;
+
+    #[test]
+    fn progress_bar_clamps_and_rounds() {
+        assert_eq!(progress_bar(0.0, 10), "▱▱▱▱▱▱▱▱▱▱");
+        assert_eq!(progress_bar(100.0, 10), "▰▰▰▰▰▰▰▰▰▰");
+        assert_eq!(progress_bar(50.0, 10), "▰▰▰▰▰▱▱▱▱▱");
+        assert_eq!(progress_bar(150.0, 10), "▰▰▰▰▰▰▰▰▰▰");
+        assert_eq!(progress_bar(-10.0, 10), "▱▱▱▱▱▱▱▱▱▱");
+    }
 }

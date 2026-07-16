@@ -44,8 +44,9 @@ impl Checker for Cpu {
         }
         let sev = self.cfg.severity(usage, false);
         let flag = if usage > self.cfg.threshold { sev.emoji() } else { "✓" };
+        let bar = super::progress_bar(usage, 30);
         format!(
-            "  CPU     {:>6.1}%  load: {:.2} {:.2} {:.2}  {flag}",
+            "  CPU     {bar}  {:>6.1}%  load: {:.2} {:.2} {:.2}  {flag}",
             usage, sys.load_one, sys.load_five, sys.load_fifteen
         )
     }

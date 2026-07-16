@@ -7,7 +7,10 @@ use crate::config::MetricConfig;
 pub struct Battery {
     cfg: MetricConfig,
     paths: Vec<BatteryPath>,
+    status_skip: u8, // >0: skip status file reads this cycle
 }
+
+const STATUS_SKIP_INTERVAL: u8 = 6; // ~1 minute at 10s interval
 
 struct BatteryPath {
     capacity: PathBuf,
@@ -19,6 +22,7 @@ impl Battery {
         Self {
             cfg,
             paths: Self::list_batteries(),
+            status_skip: 0,
         }
     }
 
@@ -64,14 +68,47 @@ impl Battery {
                 return None;
             }
             let content = fs::read_to_string(&bp.capacity).ok()?;
-            content.trim().parse::<u16>().ok()
+            match content.trim().parse::<u16>() {
+                Ok(cap) => Some(cap),
+                Err(e) => {
+                    tracing::warn!("battery capacity unparseable: '{content}' at {:?}: {e}", bp.capacity);
+                    None
+                }
+            }
         })
+    }
+
+    /// Read capacity with status caching. Full status check every N cycles;
+    /// between checks, reads capacity without checking charging state.
+    /// False positives (alert during charging) are corrected on next status check.
+    fn read_capacity_cached(&mut self) -> Option<u16> {
+        if self.status_skip > 0 {
+            self.status_skip -= 1;
+            return self.paths.iter().find_map(|bp| {
+                let content = fs::read_to_string(&bp.capacity).ok()?;
+                match content.trim().parse::<u16>() {
+                    Ok(cap) => Some(cap),
+                    Err(e) => {
+                        tracing::warn!("battery capacity unparseable: '{content}' at {:?}: {e}", bp.capacity);
+                        None
+                    }
+                }
+            });
+        }
+        self.status_skip = STATUS_SKIP_INTERVAL;
+        self.read_capacity()
     }
 
     fn read_capacity_for_report(&self) -> Option<u16> {
         self.paths.iter().find_map(|bp| {
             let content = fs::read_to_string(&bp.capacity).ok()?;
-            content.trim().parse::<u16>().ok()
+            match content.trim().parse::<u16>() {
+                Ok(cap) => Some(cap),
+                Err(e) => {
+                    tracing::warn!("battery capacity unparseable: '{content}' at {:?}: {e}", bp.capacity);
+                    None
+                }
+            }
         })
     }
 }
@@ -86,7 +123,11 @@ impl Checker for Battery {
     }
 
     fn check(&mut self, _sys: &SysSnapshot) -> Result<Option<Alert>, super::CheckerError> {
-        let capacity = match self.read_capacity() {
+        // Re-scan for newly hotplugged batteries if none were found initially
+        if self.paths.is_empty() {
+            self.paths = Self::list_batteries();
+        }
+        let capacity = match self.read_capacity_cached() {
             Some(c) => c,
             None => return Ok(None),
         };
@@ -110,7 +151,8 @@ impl Checker for Battery {
                 } else {
                     "✓"
                 };
-                format!("  Battery {:>6}%  threshold: {:>5.1}%  {flag}", cap, self.cfg.threshold)
+                let bar = super::progress_bar(cap as f64, 30);
+                format!("  Battery {bar}  {:>6}%  threshold: {:>5.1}%  {flag}", cap, self.cfg.threshold)
             }
             None => format!("  Battery {:>6}    threshold: {:>5.1}%  -  (not detected)", "N/A", self.cfg.threshold),
         }

@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased]
+
+### Performance
+- Event-driven main loop: dedicated signal thread wakes on HUP/TERM instead of polling every 100ms — negligible idle CPU, prompt shutdown
+- Default check interval raised 10s → 30s (per-cycle wakeups and reads cut ~3x)
+- Sample load average once per cycle instead of three times
+- Battery: device paths scanned once at startup; `status` sysfs cached (~1min) instead of every cycle
+- Disk I/O wait reads only the first line of `/proc/stat`
+- CPU refresh no longer reads per-core frequencies (unused)
+- Log/trace file handles cached; rotation check only on (re)open
+
+### Fixed
+- Battery: alerts suppressed while charging/full (false low-battery warnings)
+- Temperature: blacklist-only sensor filter now catches ACPI/x86_pkg_temp sensors
+- Disk: symlinked mount points resolved via `fs::metadata` (container false positives)
+- Checkers survive transient I/O failures (3-strike removal instead of instant)
+- Recovery notifications routed through Sink cooldown (no spam after grouped alerts)
+
+### Changed
+- `rust-toolchain.toml` pins stable toolchain
+- CI: `permissions: read-all`, shared cache prefix
+
 ## [0.1.0] — 2026-05-14
 
 ### Added

@@ -57,14 +57,6 @@ struct Cli {
 static HUP_RECEIVED: AtomicBool = AtomicBool::new(false);
 static TERM_RECEIVED: AtomicBool = AtomicBool::new(false);
 
-fn handle_sighup() {
-    HUP_RECEIVED.store(true, Ordering::SeqCst);
-}
-
-fn handle_sigterm() {
-    TERM_RECEIVED.store(true, Ordering::SeqCst);
-}
-
 fn sd_notify(state: &str) {
     use std::os::unix::net::UnixDatagram;
 
@@ -102,10 +94,16 @@ struct Monitor {
     check_interval: Duration,
     config_path: Option<std::path::PathBuf>,
     checker_failures: std::collections::HashMap<&'static str, u32>,
+    wake_rx: std::sync::mpsc::Receiver<libc::c_int>,
 }
 
 impl Monitor {
-    fn new(cfg: Config, dry_run: bool, config_path: Option<std::path::PathBuf>) -> Self {
+    fn new(
+        cfg: Config,
+        dry_run: bool,
+        config_path: Option<std::path::PathBuf>,
+        wake_rx: std::sync::mpsc::Receiver<libc::c_int>,
+    ) -> Self {
         let sys = System::new_with_specifics(
             RefreshKind::nothing()
                 .with_cpu(CpuRefreshKind::nothing().with_cpu_usage())
@@ -123,6 +121,7 @@ impl Monitor {
             check_interval,
             config_path,
             checker_failures: std::collections::HashMap::new(),
+            wake_rx,
         }
     }
 
@@ -235,61 +234,66 @@ impl Monitor {
                 // keep_checkers), so no inconsistent state survives the next iteration.
                 let result = catch_unwind(AssertUnwindSafe(|| c.check(sys)));
                 match result {
-                        Ok(Ok(Some(alert))) => {
-                            failures.remove(key);
-                            sink.note_active(key, true);
-                            pending.push(PendingAlert { key, cooldown, recovery: false, alert });
-                            keep_checkers.push(c);
+                    Ok(Ok(Some(alert))) => {
+                        failures.remove(key);
+                        sink.note_active(key, true);
+                        pending.push(PendingAlert {
+                            key,
+                            cooldown,
+                            recovery: false,
+                            alert,
+                        });
+                        keep_checkers.push(c);
+                    }
+                    Ok(Ok(None)) => {
+                        failures.remove(key);
+                        if sink.note_active(key, false) {
+                            pending.push(PendingAlert {
+                                key,
+                                cooldown: 0,
+                                recovery: true,
+                                alert: checkers::Alert {
+                                    severity: Severity::Warning,
+                                    summary: format!("✅ {key} back to normal"),
+                                    body: String::new(),
+                                },
+                            });
                         }
-                        Ok(Ok(None)) => {
-                            failures.remove(key);
-                            if sink.note_active(key, false) {
-                                pending.push(PendingAlert {
-                                    key,
-                                    cooldown: 0,
-                                    recovery: true,
-                                    alert: checkers::Alert {
-                                        severity: Severity::Warning,
-                                        summary: format!("✅ {key} back to normal"),
-                                        body: String::new(),
-                                    },
-                                });
-                            }
-                            keep_checkers.push(c);
-                        }
-                        Ok(Err(CheckerError::Io(e))) => {
-                            tracing::error!("checker '{key}' I/O error: {e}");
-                            *failures.entry(key).or_insert(0) += 1;
-                            if failures.get(key).copied().unwrap_or(0) >= MAX_CHECKER_FAILURES {
-                                crashed_checkers.push(key);
-                                failures.remove(key);
-                            } else {
-                                keep_checkers.push(c);
-                            }
-                        }
-                        Ok(Err(CheckerError::InvalidData(e))) => {
-                            tracing::error!("checker '{key}' invalid data: {e}");
-                            *failures.entry(key).or_insert(0) += 1;
-                            if failures.get(key).copied().unwrap_or(0) >= MAX_CHECKER_FAILURES {
-                                crashed_checkers.push(key);
-                                failures.remove(key);
-                            } else {
-                                keep_checkers.push(c);
-                            }
-                        }
-                        Err(panic) => {
-                            let msg = if let Some(s) = panic.as_ref().downcast_ref::<&str>() {
-                                s
-                            } else if let Some(s) = panic.as_ref().downcast_ref::<String>() {
-                                s.as_str()
-                            } else {
-                                "<unknown>"
-                            };
-                            tracing::error!("checker '{key}' panicked: {msg}");
-                            failures.remove(key);
+                        keep_checkers.push(c);
+                    }
+                    Ok(Err(CheckerError::Io(e))) => {
+                        tracing::error!("checker '{key}' I/O error: {e}");
+                        *failures.entry(key).or_insert(0) += 1;
+                        if failures.get(key).copied().unwrap_or(0) >= MAX_CHECKER_FAILURES {
                             crashed_checkers.push(key);
+                            failures.remove(key);
+                        } else {
+                            keep_checkers.push(c);
                         }
                     }
+                    Ok(Err(CheckerError::InvalidData(e))) => {
+                        tracing::error!("checker '{key}' invalid data: {e}");
+                        *failures.entry(key).or_insert(0) += 1;
+                        if failures.get(key).copied().unwrap_or(0) >= MAX_CHECKER_FAILURES {
+                            crashed_checkers.push(key);
+                            failures.remove(key);
+                        } else {
+                            keep_checkers.push(c);
+                        }
+                    }
+                    Err(panic) => {
+                        let msg = if let Some(s) = panic.as_ref().downcast_ref::<&str>() {
+                            s
+                        } else if let Some(s) = panic.as_ref().downcast_ref::<String>() {
+                            s.as_str()
+                        } else {
+                            "<unknown>"
+                        };
+                        tracing::error!("checker '{key}' panicked: {msg}");
+                        failures.remove(key);
+                        crashed_checkers.push(key);
+                    }
+                }
             }
             self.checkers = keep_checkers;
 
@@ -310,14 +314,15 @@ impl Monitor {
 
             sink.notify_pending(pending);
 
-            // Sleep until next interval in small chunks so SIGTERM/SIGINT can interrupt promptly,
-            // and subtract work time to keep the cadence stable.
+            // Block for the interval (minus work time), waking early on signal.
             let elapsed = loop_start.elapsed();
             if let Some(remaining) = self.check_interval.checked_sub(elapsed) {
-                let deadline = Instant::now() + remaining;
-                while Instant::now() < deadline && !TERM_RECEIVED.load(Ordering::SeqCst) {
-                    sleep(Duration::from_millis(100));
+                // Event-driven: one wake per interval, immediate wake on HUP/TERM.
+                if let Err(std::sync::mpsc::RecvTimeoutError::Disconnected) = self.wake_rx.recv_timeout(remaining) {
+                    // signal thread unavailable; fall back to plain sleep
+                    sleep(remaining);
                 }
+                // Ok(signal) or Timeout: loop-top handles HUP/TERM flags
             }
         }
     }
@@ -465,15 +470,29 @@ fn main() {
         return;
     }
 
-    if let Err(e) = unsafe { signal_hook::low_level::register(signal_hook::consts::SIGHUP, handle_sighup) } {
-        tracing::warn!("cannot register SIGHUP handler: {e}");
-    }
-    if let Err(e) = unsafe { signal_hook::low_level::register(signal_hook::consts::SIGTERM, handle_sigterm) } {
-        tracing::warn!("cannot register SIGTERM handler: {e}");
-    }
-    if let Err(e) = unsafe { signal_hook::low_level::register(signal_hook::consts::SIGINT, handle_sigterm) } {
-        tracing::warn!("cannot register SIGINT handler: {e}");
-    }
+    // Dedicated signal thread: drives the atomics and wakes the main loop via the
+    // channel so it blocks event-driven instead of polling every 100ms.
+    let (wake_tx, wake_rx) = std::sync::mpsc::channel::<libc::c_int>();
+    std::thread::spawn(move || {
+        let mut sigs = match signal_hook::iterator::Signals::new([
+            signal_hook::consts::SIGHUP,
+            signal_hook::consts::SIGTERM,
+            signal_hook::consts::SIGINT,
+        ]) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!("cannot register signal handlers: {e}");
+                return;
+            }
+        };
+        for sig in sigs.forever() {
+            match sig {
+                signal_hook::consts::SIGHUP => HUP_RECEIVED.store(true, Ordering::SeqCst),
+                _ => TERM_RECEIVED.store(true, Ordering::SeqCst),
+            }
+            let _ = wake_tx.send(sig);
+        }
+    });
 
     let dry_run = cli.dry_run;
 
@@ -490,7 +509,7 @@ fn main() {
             std::process::exit(1);
         }
     };
-    let mut monitor = Monitor::new(cfg, dry_run, config_path);
+    let mut monitor = Monitor::new(cfg, dry_run, config_path, wake_rx);
 
     if dry_run {
         monitor.dry_run();

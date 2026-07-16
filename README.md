@@ -59,38 +59,6 @@ tar xzf sema-x86_64-linux-musl.tar.gz
 sudo mv sema /usr/local/bin/
 ```
 
-#### Verifying the cosign signature (keyless OIDC)
-
-All release artifacts are signed with [cosign](https://docs.sigstore.dev/) using keyless OIDC. The signature is anchored to this repository's release workflow and cannot be forged by anyone without push access to the `master` branch.
-
-```bash
-# Install cosign (https://docs.sigstore.dev/cosign/system_config/installation/)
-# e.g. on most distros:
-#   sudo dnf install cosign
-#   brew install cosign
-#   curl -O -L "https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64" && sudo mv cosign-linux-amd64 /usr/local/bin/cosign && sudo chmod +x /usr/local/bin/cosign
-
-# Download the artifact, signature, and certificate
-ARTIFACT="sema-x86_64-linux-musl.tar.gz"
-TAG="vX.Y.Z"   # e.g. v0.1.0
-BASE="https://github.com/codethare/sema/releases/download/${TAG}"
-curl -OL "${BASE}/${ARTIFACT}"
-curl -OL "${BASE}/${ARTIFACT}.sig"
-curl -OL "${BASE}/${ARTIFACT}.pem"
-
-# Verify the signature
-cosign verify-blob \
-  --certificate-identity "https://github.com/codethare/sema/.github/workflows/release.yml@refs/tags/${TAG}" \
-  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-  --signature "${ARTIFACT}.sig" \
-  --certificate "${ARTIFACT}.pem" \
-  "${ARTIFACT}"
-```
-
-A successful verification prints the artifact path and exits 0. A failed verification will refuse to exit 0 and print an error.
-
-> **Why keyless?** The signature is generated using an ephemeral key bound to the GitHub Actions OIDC token. The signing identity is recorded in the public transparency log (Rekor), so anyone can audit the chain of custody without managing long-lived key material.
-
 ## Usage
 
 Run as a daemon:
@@ -194,7 +162,7 @@ All fields have sensible defaults. You only need to specify what you want to cha
 ### Full example
 
 ```toml
-# Global check interval in seconds (default: 10)
+# Global check interval in seconds (default: 30)
 check_interval_secs = 10
 
 [cpu]
@@ -241,7 +209,7 @@ enabled = true
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `check_interval_secs` | integer | 10 | Global check interval (seconds) |
+| `check_interval_secs` | integer | 30 | Global check interval (seconds) |
 | `[metric].enabled` | boolean | true | Enable/disable the metric |
 | `[metric].threshold` | float | see table | Warning alert threshold |
 | `[metric].critical` | float | unset | Critical alert threshold (when set, 🔴 replaces ⚠️) |

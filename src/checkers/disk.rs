@@ -18,7 +18,8 @@ impl Disk {
 
     fn is_real_mount(d: &sysinfo::Disk) -> bool {
         // Filter out file-level bind mounts and stale entries; only real directory mounts count.
-        d.mount_point().is_dir()
+        // Use fs::metadata (follows symlinks) to resolve symlinked mount points.
+        std::fs::metadata(d.mount_point()).map(|m| m.is_dir()).unwrap_or(false)
     }
 
     fn mount_allowed(&self, mount: &str) -> bool {
@@ -129,7 +130,11 @@ impl Checker for Disk {
             .map(|(_, u, t)| u as f64 / t as f64 * 100.0)
             .unwrap_or(0.0);
         let sev = self.cfg.severity(max_usage, false);
-        let flag = if max_usage > self.cfg.threshold { sev.emoji() } else { "✓" };
+        let flag = if max_usage > self.cfg.threshold {
+            sev.emoji()
+        } else {
+            "✓"
+        };
         format!("  Disk    {flag}  [{}]", parts.join("  "))
     }
 }

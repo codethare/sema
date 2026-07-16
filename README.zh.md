@@ -141,7 +141,7 @@ systemctl --user enable --now sema
 ### 完整示例
 
 ```toml
-# 全局检测间隔（秒），默认 10
+# 全局检测间隔（秒），默认 30
 check_interval_secs = 10
 
 [cpu]
@@ -186,7 +186,7 @@ enabled = true
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `check_interval_secs` | 整数 | 10 | 全局检测间隔（秒） |
+| `check_interval_secs` | 整数 | 30 | 全局检测间隔（秒） |
 | `[metric].enabled` | 布尔 | true | 启用/禁用该指标 |
 | `[metric].threshold` | 浮点数 | 见上表 | 告警阈值 |
 | `[metric].cooldown_secs` | 整数 | 60 | 该指标通知冷却时间（秒） |

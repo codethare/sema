@@ -6,55 +6,42 @@ on:
   pull_request:
     branches: [master]
 
+permissions: read-all
+
 env:
   CARGO_TERM_COLOR: always
-  # Shared cache key prefix so fmt/check/audit jobs reuse the same target/ cache.
-  # Bump the suffix when Cargo.toml or rust-toolchain.toml changes.
-  RUST_CACHE_PREFIX: v1
 
-permissions:
-  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  fmt:
-    name: cargo fmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          persist-credentials: false
-      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
-      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
-        with:
-          key: ${{ env.RUST_CACHE_PREFIX }}-fmt-${{ github.sha }}
-      - run: cargo fmt --all -- --check
-
   check:
     name: cargo build + clippy + test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
         with:
-          components: clippy
+          components: clippy, rustfmt
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
-        with:
-          # Shared prefix so release.yml can reuse the target/ cache.
-          key: ${{ env.RUST_CACHE_PREFIX }}-x86_64-unknown-linux-musl-${{ github.sha }}
+      - run: cargo fmt --all -- --check
       - run: cargo build --all-targets
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
 
   audit:
     name: cargo audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # v2
+      - uses: taiki-e/install-action@59012be0884e296ca2da49b530610e72c49039ad # v2.81.6
         with:
           tool: cargo-audit
       - run: cargo audit

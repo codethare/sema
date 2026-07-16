@@ -59,8 +59,9 @@ impl Checker for Memory {
         let total_mb = total / (1024 * 1024);
         let sev = self.cfg.severity(usage, false);
         let flag = if usage > self.cfg.threshold { sev.emoji() } else { "✓" };
+        let bar = super::progress_bar(usage, 30);
         format!(
-            "  Memory  {:>6.1}%  threshold: {:>5.1}%  {flag}  ({used_mb}MB / {total_mb}MB)",
+            "  Memory  {bar}  {:>6.1}%  threshold: {:>5.1}%  {flag}  ({used_mb}MB / {total_mb}MB)",
             usage, self.cfg.threshold
         )
     }
